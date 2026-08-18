@@ -1,0 +1,8 @@
+# Keep raw source code and build tools private on local machine
+*.luau
+build_obfuscate.js
+ui_preview/
+node_modules/
+.tempmediaStorage/
+.user_uploaded/
+.system_generated/
