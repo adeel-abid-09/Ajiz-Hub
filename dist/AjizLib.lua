@@ -301,21 +301,20 @@ function AjizLib:CreateWindow(config)
         callback = callback or function() end
         local state = default or false
 
-        local ItemBtn = Instance.new("TextButton")
-        ItemBtn.Name = title .. "_Item"
-        ItemBtn.Size = UDim2.new(1, 0, 0, 32)
-        ItemBtn.BackgroundColor3 = Theme.ItemBg
-        ItemBtn.BorderSizePixel = 0
-        ItemBtn.AutoButtonColor = false
-        ItemBtn.Text = ""
-        ItemBtn.Parent = ScrollBody
-        Instance.new("UICorner", ItemBtn).CornerRadius = UDim.new(0, 5)
+        -- Main Container Frame
+        local ItemFrame = Instance.new("Frame")
+        ItemFrame.Name = title .. "_Container"
+        ItemFrame.Size = UDim2.new(1, 0, 0, 32)
+        ItemFrame.BackgroundColor3 = Theme.ItemBg
+        ItemFrame.BorderSizePixel = 0
+        ItemFrame.Parent = ScrollBody
+        Instance.new("UICorner", ItemFrame).CornerRadius = UDim.new(0, 5)
 
-        local ItemStroke = Instance.new("UIStroke", ItemBtn)
+        local ItemStroke = Instance.new("UIStroke", ItemFrame)
         ItemStroke.Color = Theme.Border
         ItemStroke.Thickness = 0.8
 
-        local Title = Instance.new("TextLabel", ItemBtn)
+        local Title = Instance.new("TextLabel", ItemFrame)
         Title.Size = UDim2.new(1, -38, 1, 0)
         Title.Position = UDim2.new(0, 10, 0, 0)
         Title.BackgroundTransparency = 1
@@ -324,13 +323,15 @@ function AjizLib:CreateWindow(config)
         Title.TextColor3 = Theme.TextPrimary
         Title.TextSize = 11
         Title.TextXAlignment = Enum.TextXAlignment.Left
+        Title.ZIndex = 2
 
         -- Square Checkbox Box
-        local Box = Instance.new("Frame", ItemBtn)
+        local Box = Instance.new("Frame", ItemFrame)
         Box.Size = UDim2.new(0, 16, 0, 16)
         Box.Position = UDim2.new(1, -26, 0.5, -8)
         Box.BackgroundColor3 = state and Theme.CheckActive or Theme.CheckInactive
         Box.BorderSizePixel = 0
+        Box.ZIndex = 2
         Instance.new("UICorner", Box).CornerRadius = UDim.new(0, 3)
 
         local Checkmark = Instance.new("TextLabel", Box)
@@ -341,6 +342,16 @@ function AjizLib:CreateWindow(config)
         Checkmark.TextColor3 = Color3.fromRGB(255, 255, 255)
         Checkmark.TextSize = 10
         Checkmark.TextTransparency = state and 0 or 1
+        Checkmark.ZIndex = 3
+
+        -- Transparent Click/Touch Button Overlay (On top of everything)
+        local ItemBtn = Instance.new("TextButton")
+        ItemBtn.Name = title .. "_ItemBtn"
+        ItemBtn.Size = UDim2.new(1, 0, 1, 0)
+        ItemBtn.BackgroundTransparency = 1
+        ItemBtn.Text = ""
+        ItemBtn.ZIndex = 10
+        ItemBtn.Parent = ItemFrame
 
         local function update(newState)
             state = newState
@@ -358,10 +369,10 @@ function AjizLib:CreateWindow(config)
         end)
 
         ItemBtn.MouseEnter:Connect(function()
-            ItemBtn.BackgroundColor3 = Theme.ItemHover
+            ItemFrame.BackgroundColor3 = Theme.ItemHover
         end)
         ItemBtn.MouseLeave:Connect(function()
-            ItemBtn.BackgroundColor3 = Theme.ItemBg
+            ItemFrame.BackgroundColor3 = Theme.ItemBg
         end)
 
         return {
@@ -376,21 +387,20 @@ function AjizLib:CreateWindow(config)
     function Panel:AddButton(title, callback)
         callback = callback or function() end
 
-        local ItemBtn = Instance.new("TextButton")
-        ItemBtn.Name = title .. "_Btn"
-        ItemBtn.Size = UDim2.new(1, 0, 0, 32)
-        ItemBtn.BackgroundColor3 = Theme.ItemBg
-        ItemBtn.BorderSizePixel = 0
-        ItemBtn.AutoButtonColor = false
-        ItemBtn.Text = ""
-        ItemBtn.Parent = ScrollBody
-        Instance.new("UICorner", ItemBtn).CornerRadius = UDim.new(0, 5)
+        -- Main Container Frame
+        local ItemFrame = Instance.new("Frame")
+        ItemFrame.Name = title .. "_Container"
+        ItemFrame.Size = UDim2.new(1, 0, 0, 32)
+        ItemFrame.BackgroundColor3 = Theme.ItemBg
+        ItemFrame.BorderSizePixel = 0
+        ItemFrame.Parent = ScrollBody
+        Instance.new("UICorner", ItemFrame).CornerRadius = UDim.new(0, 5)
 
-        local ItemStroke = Instance.new("UIStroke", ItemBtn)
+        local ItemStroke = Instance.new("UIStroke", ItemFrame)
         ItemStroke.Color = Theme.Border
         ItemStroke.Thickness = 0.8
 
-        local Title = Instance.new("TextLabel", ItemBtn)
+        local Title = Instance.new("TextLabel", ItemFrame)
         Title.Size = UDim2.new(1, -38, 1, 0)
         Title.Position = UDim2.new(0, 10, 0, 0)
         Title.BackgroundTransparency = 1
@@ -399,8 +409,9 @@ function AjizLib:CreateWindow(config)
         Title.TextColor3 = Theme.Accent
         Title.TextSize = 11
         Title.TextXAlignment = Enum.TextXAlignment.Left
+        Title.ZIndex = 2
 
-        local Arrow = Instance.new("TextLabel", ItemBtn)
+        local Arrow = Instance.new("TextLabel", ItemFrame)
         Arrow.Size = UDim2.new(0, 16, 0, 16)
         Arrow.Position = UDim2.new(1, -26, 0.5, -8)
         Arrow.BackgroundTransparency = 1
@@ -408,14 +419,24 @@ function AjizLib:CreateWindow(config)
         Arrow.Text = "▶"
         Arrow.TextColor3 = Theme.Accent
         Arrow.TextSize = 10
+        Arrow.ZIndex = 2
+
+        -- Transparent Click/Touch Button Overlay (On top of everything)
+        local ItemBtn = Instance.new("TextButton")
+        ItemBtn.Name = title .. "_ItemBtn"
+        ItemBtn.Size = UDim2.new(1, 0, 1, 0)
+        ItemBtn.BackgroundTransparency = 1
+        ItemBtn.Text = ""
+        ItemBtn.ZIndex = 10
+        ItemBtn.Parent = ItemFrame
 
         ItemBtn.MouseButton1Click:Connect(function()
-            local clickTween = TweenService:Create(ItemBtn, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+            local clickTween = TweenService:Create(ItemFrame, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                 BackgroundColor3 = Theme.Accent
             })
             clickTween:Play()
             clickTween.Completed:Connect(function()
-                TweenService:Create(ItemBtn, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                TweenService:Create(ItemFrame, TweenInfo.new(0.15, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                     BackgroundColor3 = Theme.ItemBg
                 }):Play()
             end)
@@ -423,10 +444,10 @@ function AjizLib:CreateWindow(config)
         end)
 
         ItemBtn.MouseEnter:Connect(function()
-            ItemBtn.BackgroundColor3 = Theme.ItemHover
+            ItemFrame.BackgroundColor3 = Theme.ItemHover
         end)
         ItemBtn.MouseLeave:Connect(function()
-            ItemBtn.BackgroundColor3 = Theme.ItemBg
+            ItemFrame.BackgroundColor3 = Theme.ItemBg
         end)
     end
 
@@ -521,21 +542,19 @@ function AjizLib:CreateWindow(config)
             end
         end
 
-        local ItemBtn = Instance.new("TextButton")
-        ItemBtn.Name = title .. "_Item"
-        ItemBtn.Size = UDim2.new(1, 0, 0, 32)
-        ItemBtn.BackgroundColor3 = Theme.ItemBg
-        ItemBtn.BorderSizePixel = 0
-        ItemBtn.AutoButtonColor = false
-        ItemBtn.Text = ""
-        ItemBtn.Parent = ScrollBody
-        Instance.new("UICorner", ItemBtn).CornerRadius = UDim.new(0, 5)
+        local ItemFrame = Instance.new("Frame")
+        ItemFrame.Name = title .. "_Container"
+        ItemFrame.Size = UDim2.new(1, 0, 0, 32)
+        ItemFrame.BackgroundColor3 = Theme.ItemBg
+        ItemFrame.BorderSizePixel = 0
+        ItemFrame.Parent = ScrollBody
+        Instance.new("UICorner", ItemFrame).CornerRadius = UDim.new(0, 5)
 
-        local ItemStroke = Instance.new("UIStroke", ItemBtn)
+        local ItemStroke = Instance.new("UIStroke", ItemFrame)
         ItemStroke.Color = Theme.Border
         ItemStroke.Thickness = 0.8
 
-        local Title = Instance.new("TextLabel", ItemBtn)
+        local Title = Instance.new("TextLabel", ItemFrame)
         Title.Size = UDim2.new(1, -38, 1, 0)
         Title.Position = UDim2.new(0, 10, 0, 0)
         Title.BackgroundTransparency = 1
@@ -544,8 +563,9 @@ function AjizLib:CreateWindow(config)
         Title.TextColor3 = Theme.Accent
         Title.TextSize = 11
         Title.TextXAlignment = Enum.TextXAlignment.Left
+        Title.ZIndex = 2
 
-        local Arrow = Instance.new("TextLabel", ItemBtn)
+        local Arrow = Instance.new("TextLabel", ItemFrame)
         Arrow.Size = UDim2.new(0, 16, 0, 16)
         Arrow.Position = UDim2.new(1, -26, 0.5, -8)
         Arrow.BackgroundTransparency = 1
@@ -553,16 +573,26 @@ function AjizLib:CreateWindow(config)
         Arrow.Text = "▶"
         Arrow.TextColor3 = Theme.Accent
         Arrow.TextSize = 10
+        Arrow.ZIndex = 2
+
+        -- Transparent Click/Touch Button Overlay (On top of everything)
+        local ItemBtn = Instance.new("TextButton")
+        ItemBtn.Name = title .. "_ItemBtn"
+        ItemBtn.Size = UDim2.new(1, 0, 1, 0)
+        ItemBtn.BackgroundTransparency = 1
+        ItemBtn.Text = ""
+        ItemBtn.ZIndex = 10
+        ItemBtn.Parent = ItemFrame
 
         ItemBtn.MouseButton1Click:Connect(function()
             TeleportFlyout.Visible = not TeleportFlyout.Visible
         end)
 
         ItemBtn.MouseEnter:Connect(function()
-            ItemBtn.BackgroundColor3 = Theme.ItemHover
+            ItemFrame.BackgroundColor3 = Theme.ItemHover
         end)
         ItemBtn.MouseLeave:Connect(function()
-            ItemBtn.BackgroundColor3 = Theme.ItemBg
+            ItemFrame.BackgroundColor3 = Theme.ItemBg
         end)
     end
 
