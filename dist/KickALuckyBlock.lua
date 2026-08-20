@@ -113,6 +113,26 @@ local function autoDetectRemotes()
             end
         end
     end
+    
+    -- Real-time observers to scan newly spawned items in Workspace and Debris
+    pcall(function()
+        Workspace.ChildAdded:Connect(function(child)
+            task.wait(0.1)
+            if child and child.Parent then
+                print("[SPAWNED WORKSPACE] Name: " .. child.Name .. " | Class: " .. child.ClassName .. " | Path: " .. child:GetFullName())
+            end
+        end)
+        
+        local debrisFolder = Workspace:FindFirstChild("Debris")
+        if debrisFolder then
+            debrisFolder.ChildAdded:Connect(function(child)
+                task.wait(0.1)
+                if child and child.Parent then
+                    print("[SPAWNED DEBRIS] Name: " .. child.Name .. " | Class: " .. child.ClassName .. " | Path: " .. child:GetFullName())
+                end
+            end)
+        end
+    end)
 end
 pcall(autoDetectRemotes)
 
@@ -170,12 +190,21 @@ task.spawn(function()
                 if string.find(name, "lift") or string.find(name, "weight") or string.find(name, "strength") or string.find(name, "train") or string.find(name, "gain") or string.find(name, "click") then
                     _G.LiftRemote = self
                     _G.LiftArgs = args
+                    pcall(function()
+                        print("[AJIZ HOOK] Captured LIFT: " .. self.Name .. " | Args: " .. HttpService:JSONEncode(args))
+                    end)
                 elseif string.find(name, "kick") or string.find(name, "hit") or string.find(name, "block") or string.find(name, "launch") then
                     _G.KickRemote = self
                     _G.KickArgs = args
+                    pcall(function()
+                        print("[AJIZ HOOK] Captured KICK: " .. self.Name .. " | Args: " .. HttpService:JSONEncode(args))
+                    end)
                 elseif string.find(name, "rebirth") or string.find(name, "prestige") or string.find(name, "ascend") then
                     _G.RebirthRemote = self
                     _G.RebirthArgs = args
+                    pcall(function()
+                        print("[AJIZ HOOK] Captured REBIRTH: " .. self.Name .. " | Args: " .. HttpService:JSONEncode(args))
+                    end)
                 end
             end
             
