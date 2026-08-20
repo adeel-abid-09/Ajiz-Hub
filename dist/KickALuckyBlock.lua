@@ -32,6 +32,54 @@ if not LocalPlayer then
     LocalPlayer = Players.PlayerAdded:Wait()
 end
 
+-- Diagnostic Tool for Game Remotes and Folders
+pcall(function()
+    print("=== AJIZ HUB DIAGNOSTICS ===")
+    
+    -- 1. Tools Check
+    local toolsFound = {}
+    for _, t in ipairs(LocalPlayer.Backpack:GetChildren()) do
+        table.insert(toolsFound, t.Name)
+    end
+    for _, t in ipairs(LocalPlayer.Character:GetChildren()) do
+        if t:IsA("Tool") then
+            table.insert(toolsFound, t.Name .. " (Equipped)")
+        end
+    end
+    print("Tools found: " .. (#toolsFound > 0 and table.concat(toolsFound, ", ") or "None"))
+
+    -- 2. Workspace Folders & Models Check
+    local wsChildren = {}
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj:IsA("Folder") then
+            table.insert(wsChildren, obj.Name .. " (Folder)")
+        elseif obj:IsA("Model") and not Players:GetPlayerFromCharacter(obj) then
+            table.insert(wsChildren, obj.Name .. " (Model)")
+        end
+    end
+    print("Workspace Children: " .. (#wsChildren > 0 and table.concat(wsChildren, ", ") or "None"))
+
+    -- 3. Filtered Remotes Check
+    print("--- Filtered Remotes ---")
+    local keywords = {"kick", "train", "lift", "strength", "rebirth", "collect", "egg", "hatch", "buy", "item", "reward", "click", "block", "power"}
+    for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+            local lname = obj.Name:lower()
+            local matched = false
+            for _, kw in ipairs(keywords) do
+                if lname:find(kw) then
+                    matched = true
+                    break
+                end
+            end
+            if matched then
+                print("Remote: " .. obj.Name .. " (" .. obj.ClassName .. ")")
+            end
+        end
+    end
+    print("==============================")
+end)
+
 -- Global States
 _G.AutoLift = false
 _G.AutoKick = false
