@@ -1,6 +1,6 @@
 --[[
     ========================================================================
-    ⚡ AJIZ HUB - DRIFT TAG (MODULAR GAME LOGIC) ⚡
+    ⚡ AJIZ HUB - PAPER SIMULATOR / CLICKER (MODULAR GAME LOGIC) ⚡
     ========================================================================
 --]]
 
@@ -18,7 +18,7 @@ pcall(function()
     CoreGui = game:GetService("CoreGui")
 end)
 
--- Safe Player Acquisition (No infinite yield)
+-- Safe Player Acquisition
 local LocalPlayer = Players.LocalPlayer
 if not LocalPlayer then
     local start = os.clock()
@@ -31,88 +31,171 @@ if not LocalPlayer then
     LocalPlayer = Players.PlayerAdded:Wait()
 end
 
--- Global State Management
-_G.AutoPassActive = false
-_G.CarFlyActive = false
-_G.SpeedBoostActive = false
-_G.CarSpeedValue = 100
+-- Global States
+_G.AutoClick = false
+_G.AutoHatch = false
+_G.AutoRebirth = false
 
--- In-game Notification Helper
-local function Notify(title, msg, dur)
-    dur = dur or 3
-    pcall(function()
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = title,
-            Text = msg,
-            Duration = dur
-        })
-    end)
+_G.ClickRemote = nil
+_G.ClickArgs = nil
+_G.HatchRemote = nil
+_G.HatchArgs = nil
+_G.RebirthRemote = nil
+_G.RebirthArgs = nil
+
+-- Safe Table Dump Helper
+local function safeDump(tbl)
+    if type(tbl) ~= "table" then return tostring(tbl) end
+    local parts = {}
+    for k, v in pairs(tbl) do
+        table.insert(parts, tostring(k) .. ": " .. tostring(v) .. " (" .. typeof(v) .. ")")
+    end
+    return "{" .. table.concat(parts, ", ") .. "}"
 end
 
--- =================================================================
--- REMOTE & GAMEPLAY SCANNER
--- =================================================================
-local detectedTagRemotes = {}
+-- Diagnostic Tool for Game Remotes and Folders
+pcall(function()
+    print("=== AJIZ HUB DIAGNOSTICS ===")
+    
+    -- 1. Tools Check
+    local toolsFound = {}
+    for _, t in ipairs(LocalPlayer.Backpack:GetChildren()) do
+        table.insert(toolsFound, t.Name)
+    end
+    for _, t in ipairs(LocalPlayer.Character:GetChildren()) do
+        if t:IsA("Tool") then
+            table.insert(toolsFound, t.Name .. " (Equipped)")
+        end
+    end
+    print("Tools found: " .. (#toolsFound > 0 and table.concat(toolsFound, ", ") or "None"))
 
-local function scanGameRemotes()
-    detectedTagRemotes = {}
+    -- 2. Workspace Folders & Models Check
+    local wsChildren = {}
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj:IsA("Folder") then
+            table.insert(wsChildren, obj.Name .. " (Folder)")
+        elseif obj:IsA("Model") and not Players:GetPlayerFromCharacter(obj) then
+            table.insert(wsChildren, obj.Name .. " (Model)")
+        end
+    end
+    print("Workspace Children: " .. (#wsChildren > 0 and table.concat(wsChildren, ", ") or "None"))
+
+    -- 3. Filtered Remotes Check (Single String)
+    local remotes = {}
     for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
         if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
-            local lname = string.lower(obj.Name)
-            if string.find(lname, "tag") or string.find(lname, "pass") or string.find(lname, "bomb") or string.find(lname, "hit") or string.find(lname, "touch") then
-                table.insert(detectedTagRemotes, obj)
-            end
+            table.insert(remotes, obj.Name)
         end
     end
-end
-pcall(scanGameRemotes)
+    print("All Remotes: " .. table.concat(remotes, ", "))
+    print("==============================")
+end)
 
--- Smart Bomb Detector
-local function localPlayerHasBomb()
-    local char = LocalPlayer.Character
-    if not char then return false end
-    
-    -- 1. Check Attributes on Player & Character
-    for k, v in pairs(LocalPlayer:GetAttributes()) do
-        local lname = string.lower(tostring(k))
-        if (string.find(lname, "it") or string.find(lname, "bomb") or string.find(lname, "tag")) and v == true then
-            return true
-        end
-    end
-    for k, v in pairs(char:GetAttributes()) do
-        local lname = string.lower(tostring(k))
-        if (string.find(lname, "it") or string.find(lname, "bomb") or string.find(lname, "tag")) and v == true then
-            return true
-        end
-    end
-    
-    -- 2. Check Children inside Character (Tools, Particles, Bomb Models)
-    for _, child in ipairs(char:GetChildren()) do
-        local lname = string.lower(child.Name)
-        if string.find(lname, "bomb") or string.find(lname, "tag") or string.find(lname, "it") or string.find(lname, "potato") or child:IsA("Tool") then
-            return true
-        end
-    end
-    
-    -- 3. Check workspace value holders
-    for _, descendant in ipairs(workspace:GetDescendants()) do
-        if descendant:IsA("StringValue") or descendant:IsA("ObjectValue") then
-            local lname = string.lower(descendant.Name)
-            if string.find(lname, "bomb") or string.find(lname, "tag") or string.find(lname, "it") then
-                if descendant.Value == LocalPlayer.Name or descendant.Value == LocalPlayer or descendant.Value == char then
-                    return true
+-- Metamethod Namecall Hook
+task.spawn(function()
+    local success, mt = pcall(function() return getrawmetatable(game) end)
+    if success and mt then
+        local oldNamecall = mt.__namecall
+        setreadonly(mt, false)
+
+        mt.__namecall = newcclosure(function(self, ...)
+            if checkcaller() then
+                return oldNamecall(self, ...)
+            end
+            
+            local method = getnamecallmethod()
+            local args = {...}
+            
+            if method == "FireServer" or method == "InvokeServer" then
+                local name = string.lower(self.Name)
+                if string.find(name, "click") or string.find(name, "tap") or string.find(name, "add") or string.find(name, "collect") or string.find(name, "gain") or string.find(name, "slop") then
+                    _G.ClickRemote = self
+                    _G.ClickArgs = args
+                    pcall(function()
+                        print("[AJIZ HOOK] Captured CLICK: " .. self.Name .. " | Args: " .. safeDump(args))
+                    end)
+                elseif string.find(name, "hatch") or string.find(name, "buy") or string.find(name, "open") or string.find(name, "egg") then
+                    _G.HatchRemote = self
+                    _G.HatchArgs = args
+                    pcall(function()
+                        print("[AJIZ HOOK] Captured HATCH: " .. self.Name .. " | Args: " .. safeDump(args))
+                    end)
+                elseif string.find(name, "rebirth") or string.find(name, "prestige") then
+                    _G.RebirthRemote = self
+                    _G.RebirthArgs = args
+                    pcall(function()
+                        print("[AJIZ HOOK] Captured REBIRTH: " .. self.Name .. " | Args: " .. safeDump(args))
+                    end)
                 end
             end
+            
+            return oldNamecall(self, ...)
+        end)
+        setreadonly(mt, true)
+    end
+end)
+
+-- ========================================================================
+-- 🏝️ GAMEPLAY AUTOMATION SYSTEMS
+-- ========================================================================
+
+-- 1. Auto Click / Auto Tap
+task.spawn(function()
+    while true do
+        task.wait(0.5) -- Safe rate-limit cooldown
+        if _G.AutoClick then
+            pcall(function()
+                if _G.ClickRemote then
+                    if _G.ClickRemote:IsA("RemoteEvent") then
+                        _G.ClickRemote:FireServer(unpack(_G.ClickArgs or {}))
+                    elseif _G.ClickRemote:IsA("RemoteFunction") then
+                        _G.ClickRemote:InvokeServer(unpack(_G.ClickArgs or {}))
+                    end
+                end
+            end)
         end
     end
-    
-    -- If no explicit game flag found, fallback to true so Auto Pass functions when toggle is ON
-    return true
-end
+end)
 
--- =================================================================
+-- 2. Auto Hatch
+task.spawn(function()
+    while true do
+        task.wait(1.5) -- Safe cooldown to prevent bans
+        if _G.AutoHatch then
+            pcall(function()
+                if _G.HatchRemote then
+                    if _G.HatchRemote:IsA("RemoteEvent") then
+                        _G.HatchRemote:FireServer(unpack(_G.HatchArgs or {}))
+                    elseif _G.HatchRemote:IsA("RemoteFunction") then
+                        _G.HatchRemote:InvokeServer(unpack(_G.HatchArgs or {}))
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- 3. Auto Rebirth
+task.spawn(function()
+    while true do
+        task.wait(2.5) -- Safe cooldown to prevent bans
+        if _G.AutoRebirth then
+            pcall(function()
+                if _G.RebirthRemote then
+                    if _G.RebirthRemote:IsA("RemoteEvent") then
+                        _G.RebirthRemote:FireServer(unpack(_G.RebirthArgs or {}))
+                    elseif _G.RebirthRemote:IsA("RemoteFunction") then
+                        _G.RebirthRemote:InvokeServer(unpack(_G.RebirthArgs or {}))
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- ========================================================================
 -- 🎨 GUI INTERFACE DELEGATED TO AJIZLIB
--- =================================================================
+-- ========================================================================
 local AjizLib = (function()
 --[[
     ========================================================================
@@ -892,179 +975,21 @@ return AjizLib
 end)()
 
 local Panel = AjizLib:CreateWindow({
-    Title = "+ AJIZ HUB",
-    GameName = "Drift Tag",
+    Title = "AJIZ HUB",
+    GameName = "Paper Simulator",
     Footer = "Ajiz Hub"
 })
 
--- 1. Auto Pass Bomb
-Panel:AddToggle("Auto Pass Bomb", false, function(state)
-    _G.AutoPassActive = state
-    if state then
-        task.spawn(function()
-            while _G.AutoPassActive do
-                task.wait(0.02) -- Ultra fast 20ms loop
-                
-                if localPlayerHasBomb() then
-                    local myChar = LocalPlayer.Character
-                    if myChar then
-                        local myHumanoid = myChar:FindFirstChildWhichIsA("Humanoid")
-                        local mySeat = myHumanoid and myHumanoid.SeatPart
-                        local myRoot = mySeat or myChar:FindFirstChild("HumanoidRootPart")
-                        
-                        if myRoot then
-                            local closestPlayer = nil
-                            local closestTargetPart = nil
-                            local minDistance = math.huge
-                            
-                            for _, target in ipairs(Players:GetPlayers()) do
-                                if target ~= LocalPlayer and target.Character then
-                                    local tHumanoid = target.Character:FindFirstChildWhichIsA("Humanoid")
-                                    local tSeat = tHumanoid and tHumanoid.SeatPart
-                                    local tRoot = tSeat or target.Character:FindFirstChild("HumanoidRootPart")
-                                    
-                                    if tRoot then
-                                        local dist = (myRoot.Position - tRoot.Position).Magnitude
-                                        if dist < minDistance then
-                                            minDistance = dist
-                                            closestPlayer = target
-                                            closestTargetPart = tRoot
-                                        end
-                                    end
-                                end
-                            end
-                            
-                            if closestTargetPart and closestPlayer then
-                                -- 1. Direct CFrame Position Teleport (Overlap)
-                                local targetCFrame = closestTargetPart.CFrame
-                                if mySeat and mySeat:IsA("BasePart") then
-                                    mySeat.CFrame = targetCFrame
-                                end
-                                if myChar:FindFirstChild("HumanoidRootPart") then
-                                    myChar.HumanoidRootPart.CFrame = targetCFrame
-                                end
-                                
-                                -- 2. Trigger Touch Interest if supported
-                                if firetouchinterest then
-                                    pcall(function()
-                                        firetouchinterest(myRoot, closestTargetPart, 0)
-                                        task.wait()
-                                        firetouchinterest(myRoot, closestTargetPart, 1)
-                                    end)
-                                end
-                                
-                                -- 3. Fire detected Tag Remotes if available
-                                for _, remote in ipairs(detectedTagRemotes) do
-                                    pcall(function()
-                                        if remote:IsA("RemoteEvent") then
-                                            remote:FireServer(closestPlayer)
-                                            remote:FireServer(closestTargetPart)
-                                        elseif remote:IsA("RemoteFunction") then
-                                            remote:InvokeServer(closestPlayer)
-                                        end
-                                    end)
-                                end
-                            end
-                        end
-                    end
-                end
-            end
-        end)
-    end
+Panel:AddToggle("Auto Click", false, function(state)
+    _G.AutoClick = state
 end)
 
--- 2. Car Fly
-Panel:AddToggle("Car Fly", false, function(state)
-    _G.CarFlyActive = state
-    local UIS = game:GetService("UserInputService")
-    
-    if state then
-        task.spawn(function()
-            local bv = Instance.new("BodyVelocity")
-            bv.Name = "DriftTagFlyBV"
-            bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
-            bv.Velocity = Vector3.new(0, 0, 0)
-            
-            local bg = Instance.new("BodyGyro")
-            bg.Name = "DriftTagFlyBG"
-            bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
-            bg.P = 9e4
-            
-            local flySpeed = 70
-            
-            while _G.CarFlyActive do
-                RunService.Heartbeat:Wait()
-                local char = LocalPlayer.Character
-                if char then
-                    local humanoid = char:FindFirstChildWhichIsA("Humanoid")
-                    local seat = humanoid and humanoid.SeatPart
-                    local targetPart = seat or char:FindFirstChild("HumanoidRootPart")
-                    
-                    if targetPart then
-                        bv.Parent = targetPart
-                        bg.Parent = targetPart
-                        
-                        local camera = workspace.CurrentCamera
-                        local moveDir = humanoid and humanoid.MoveDirection or Vector3.new()
-                        
-                        bg.CFrame = camera.CFrame
-                        
-                        local velocityDir = Vector3.new()
-                        if moveDir.Magnitude > 0 then
-                            velocityDir = camera.CFrame:VectorToWorldSpace(Vector3.new(moveDir.X, 0, moveDir.Z))
-                        end
-                        
-                        if UIS:IsKeyDown(Enum.KeyCode.Space) then
-                            velocityDir = velocityDir + Vector3.new(0, 1, 0)
-                        end
-                        if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then
-                            velocityDir = velocityDir - Vector3.new(0, 1, 0)
-                        end
-                        
-                        if velocityDir.Magnitude > 0 then
-                            bv.Velocity = velocityDir.Unit * flySpeed
-                        else
-                            bv.Velocity = Vector3.new(0, 0.1, 0)
-                        end
-                    end
-                end
-            end
-            
-            bv:Destroy()
-            bg:Destroy()
-        end)
-    end
+Panel:AddToggle("Auto Hatch Eggs", false, function(state)
+    _G.AutoHatch = state
 end)
 
--- 3. Speed Boost
-Panel:AddToggle("Speed Boost", false, function(state)
-    _G.SpeedBoostActive = state
-    if state then
-        task.spawn(function()
-            while _G.SpeedBoostActive do
-                task.wait(0.03)
-                local speed = _G.CarSpeedValue or 100
-                local char = LocalPlayer.Character
-                if char then
-                    local humanoid = char:FindFirstChildWhichIsA("Humanoid")
-                    local seat = humanoid and humanoid.SeatPart
-                    if seat and seat:IsA("VehicleSeat") then
-                        seat.MaxSpeed = speed
-                        seat.AssemblyLinearVelocity = seat.CFrame.LookVector * speed
-                    elseif char:FindFirstChild("HumanoidRootPart") then
-                        if humanoid and humanoid.MoveDirection.Magnitude > 0 then
-                            char.HumanoidRootPart.AssemblyLinearVelocity = char.HumanoidRootPart.CFrame.LookVector * speed
-                        end
-                    end
-                end
-            end
-        end)
-    end
+Panel:AddToggle("Auto Rebirth", false, function(state)
+    _G.AutoRebirth = state
 end)
 
--- 4. Speed Slider Value
-Panel:AddSlider("Speed Value", 20, 300, 100, function(value)
-    _G.CarSpeedValue = value
-end)
-
-Notify("Ajiz Hub", "Drift Tag Script Loaded!", 3)
+AjizLib:Notify("Ajiz Hub", "Paper Simulator Script Loaded!", 3)

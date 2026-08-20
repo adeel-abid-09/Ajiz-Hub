@@ -439,9 +439,9 @@ end
 --]]
 function AjizLib:CreateWindow(config)
     config = config or {}
-    local TitleText = config.Title or "+ AJIZ HUB"
+    local TitleText = config.Title or "AJIZ HUB"
     local GameName = config.GameName or ""
-    local FullTitle = TitleText .. (GameName ~= "" and (" - " .. GameName:upper()) or "")
+    local FullTitle = GameName ~= "" and GameName:upper() or TitleText:upper()
     local FooterText = config.Footer or "Ajiz Hub"
 
     local container = GetGuiContainer()
@@ -488,11 +488,16 @@ function AjizLib:CreateWindow(config)
 
     MakeDraggable(MobileToggle)
 
-    -- Main Panel
+    -- Minimize & Height Logic
+    local isMin = false
+    local isVis = true
+    local expandedHeight = 120
+
+    -- Main Panel Frame
     local MainFrame = Instance.new("Frame")
     MainFrame.Name = "MainFrame"
-    MainFrame.Size = UDim2.new(0, 240, 0, 290)
-    MainFrame.Position = UDim2.new(0.5, -120, 0.4, -145)
+    MainFrame.Size = UDim2.new(0, 240, 0, 120)
+    MainFrame.Position = UDim2.new(0.5, -120, 0.4, -60)
     MainFrame.BackgroundColor3 = Theme.Background
     MainFrame.BorderSizePixel = 0
     MainFrame.ClipsDescendants = false
@@ -540,7 +545,7 @@ function AjizLib:CreateWindow(config)
     -- Scrollable Features List
     local ScrollBody = Instance.new("ScrollingFrame")
     ScrollBody.Name = "ScrollBody"
-    ScrollBody.Size = UDim2.new(1, -12, 1, -62)
+    ScrollBody.Size = UDim2.new(1, -12, 0, 60)
     ScrollBody.Position = UDim2.new(0, 6, 0, 38)
     ScrollBody.BackgroundTransparency = 1
     ScrollBody.BorderSizePixel = 0
@@ -566,13 +571,22 @@ function AjizLib:CreateWindow(config)
     FooterLabel.Size = UDim2.new(1, 0, 1, 0)
     FooterLabel.BackgroundTransparency = 1
     FooterLabel.Font = Theme.Font
-    FooterLabel.Text = FooterText
+    FooterLabel.Text = FooterText:upper()
     FooterLabel.TextColor3 = Theme.Accent
-    FooterLabel.TextSize = 11
+    FooterLabel.TextSize = 12.5
 
-    -- Minimize & Toggle Logic
-    local isMin = false
-    local isVis = true
+    -- Auto-scaling height logic based on content size
+    local function updateFrameSize()
+        if isMin then return end
+        local contentHeight = Layout.AbsoluteContentSize.Y
+        expandedHeight = math.clamp(contentHeight + 68, 120, 500)
+        
+        MainFrame.Size = UDim2.new(0, 240, 0, expandedHeight)
+        
+        local maxScrollHeight = 500 - 68
+        ScrollBody.Size = UDim2.new(1, -12, 0, math.min(contentHeight, maxScrollHeight))
+    end
+    Layout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(updateFrameSize)
 
     MobileToggle.Activated:Connect(function()
         isVis = not isVis
@@ -592,7 +606,7 @@ function AjizLib:CreateWindow(config)
             end
         else
             TweenService:Create(MainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-                Size = UDim2.new(0, 240, 0, 290)
+                Size = UDim2.new(0, 240, 0, expandedHeight)
             }):Play()
             MinBtn.Text = "▲"
         end
