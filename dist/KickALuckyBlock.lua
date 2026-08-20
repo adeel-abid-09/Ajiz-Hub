@@ -59,24 +59,24 @@ pcall(function()
     end
     print("Workspace Children: " .. (#wsChildren > 0 and table.concat(wsChildren, ", ") or "None"))
 
-    -- 3. Filtered Remotes Check
-    print("--- Filtered Remotes ---")
-    local keywords = {"kick", "train", "lift", "strength", "rebirth", "collect", "egg", "hatch", "buy", "item", "reward", "click", "block", "power"}
+    -- 3. Debris Scan
+    local debrisFolder = Workspace:FindFirstChild("Debris")
+    if debrisFolder then
+        local deb = {}
+        for _, child in ipairs(debrisFolder:GetChildren()) do
+            table.insert(deb, child.Name)
+        end
+        print("Debris children: " .. (#deb > 0 and table.concat(deb, ", ") or "None"))
+    end
+
+    -- 4. All Remotes Check (Comma Separated for screenshot copy-paste ease)
+    local remotes = {}
     for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
         if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
-            local lname = obj.Name:lower()
-            local matched = false
-            for _, kw in ipairs(keywords) do
-                if lname:find(kw) then
-                    matched = true
-                    break
-                end
-            end
-            if matched then
-                print("Remote: " .. obj.Name .. " (" .. obj.ClassName .. ")")
-            end
+            table.insert(remotes, obj.Name)
         end
     end
+    print("All Remotes: " .. table.concat(remotes, ", "))
     print("==============================")
 end)
 
@@ -166,20 +166,20 @@ end)
 -- 🏝️ GAMEPLAY AUTOMATION SYSTEMS
 -- ========================================================================
 
--- 1. Auto Lift (Equip Weight and Train Strength)
+-- 1. Auto Lift (Equip Weight/Stick and Train Strength)
 local function equipWeightTool()
     local char = LocalPlayer.Character
     local humanoid = char and char:FindFirstChildWhichIsA("Humanoid")
     if humanoid then
         local equipped = char:FindFirstChildWhichIsA("Tool")
-        if equipped and (equipped.Name:lower():find("weight") or equipped.Name:lower():find("dumb") or equipped.Name:lower():find("strength")) then
+        if equipped then
             return equipped
         end
-        for _, item in ipairs(LocalPlayer.Backpack:GetChildren()) do
-            if item:IsA("Tool") and (item.Name:lower():find("weight") or item.Name:lower():find("dumb") or item.Name:lower():find("strength")) then
-                humanoid:EquipTool(item)
-                return item
-            end
+        -- Fallback to first tool in Backpack (e.g. Wooden Stick)
+        local firstTool = LocalPlayer.Backpack:FindFirstChildOfClass("Tool")
+        if firstTool then
+            humanoid:EquipTool(firstTool)
+            return firstTool
         end
     end
     return nil
