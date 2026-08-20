@@ -108,24 +108,23 @@ task.spawn(function()
             
             if method == "FireServer" or method == "InvokeServer" then
                 local name = string.lower(self.Name)
-                if string.find(name, "click") or string.find(name, "tap") or string.find(name, "add") or string.find(name, "collect") or string.find(name, "gain") or string.find(name, "slop") then
+                local firstArg = tostring(args[1] or ""):lower()
+                
+                -- Capture ALL remote calls for logging
+                pcall(function()
+                    print("[AJIZ NETWORK] Remote: " .. self.Name .. " | Key: " .. firstArg .. " | Args: " .. safeDump(args))
+                end)
+                
+                -- Map generic remote fires to their specific feature variables based on first argument keys
+                if name:find("click") or name:find("tap") or firstArg:find("click") or firstArg:find("tap") or firstArg:find("slop") or firstArg:find("add") or firstArg:find("gain") then
                     _G.ClickRemote = self
                     _G.ClickArgs = args
-                    pcall(function()
-                        print("[AJIZ HOOK] Captured CLICK: " .. self.Name .. " | Args: " .. safeDump(args))
-                    end)
-                elseif string.find(name, "hatch") or string.find(name, "buy") or string.find(name, "open") or string.find(name, "egg") then
+                elseif name:find("hatch") or name:find("buy") or name:find("open") or name:find("egg") or firstArg:find("hatch") or firstArg:find("buy") or firstArg:find("open") or firstArg:find("egg") then
                     _G.HatchRemote = self
                     _G.HatchArgs = args
-                    pcall(function()
-                        print("[AJIZ HOOK] Captured HATCH: " .. self.Name .. " | Args: " .. safeDump(args))
-                    end)
-                elseif string.find(name, "rebirth") or string.find(name, "prestige") then
+                elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
                     _G.RebirthRemote = self
                     _G.RebirthArgs = args
-                    pcall(function()
-                        print("[AJIZ HOOK] Captured REBIRTH: " .. self.Name .. " | Args: " .. safeDump(args))
-                    end)
                 end
             end
             
