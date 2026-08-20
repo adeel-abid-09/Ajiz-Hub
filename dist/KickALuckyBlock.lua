@@ -182,6 +182,10 @@ task.spawn(function()
         setreadonly(mt, false)
 
         mt.__namecall = newcclosure(function(self, ...)
+            if checkcaller() then
+                return oldNamecall(self, ...)
+            end
+            
             local method = getnamecallmethod()
             local args = {...}
             
