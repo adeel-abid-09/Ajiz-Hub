@@ -197,28 +197,37 @@ task.spawn(function()
                     if tool then
                         tool:Activate()
                     end
-                    pcall(function()
-                        VirtualUser:CaptureController()
-                        VirtualUser:Button1Down(Vector2.zero)
-                        task.wait()
-                        VirtualUser:Button1Up(Vector2.zero)
-                    end)
                 end
             end)
         end
     end
 end)
 
--- 2. Auto Kick Block
-local function getKickPart()
+-- 2. Auto Kick Block (Using Proximity Prompts near player)
+local function triggerNearestPrompt()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+    
+    local nearestPrompt = nil
+    local minDistance = 30
+    
     for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and (obj.Name:lower():find("luckyblock") or obj.Name:lower():find("kick")) then
-            if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
-                return obj
+        if obj:IsA("ProximityPrompt") then
+            local parent = obj.Parent
+            if parent and parent:IsA("BasePart") then
+                local dist = (root.Position - parent.Position).Magnitude
+                if dist < minDistance then
+                    minDistance = dist
+                    nearestPrompt = obj
+                end
             end
         end
     end
-    return nil
+    
+    if nearestPrompt then
+        fireproximityprompt(nearestPrompt)
+    end
 end
 
 task.spawn(function()
@@ -229,13 +238,7 @@ task.spawn(function()
                 if _G.KickRemote then
                     _G.KickRemote:FireServer(unpack(_G.KickArgs or {}))
                 else
-                    local kickPart = getKickPart()
-                    if kickPart then
-                        local prompt = kickPart:FindFirstChildOfClass("ProximityPrompt") or kickPart:FindFirstChildWhichIsA("ProximityPrompt")
-                        if prompt then
-                            fireproximityprompt(prompt)
-                        end
-                    end
+                    triggerNearestPrompt()
                 end
             end)
         end
@@ -245,30 +248,27 @@ end)
 -- 3. Auto Collect & Teleport (Tsunami Bypass)
 local function getDroppedItems()
     local list = {}
-    local folders = {"DroppedItems", "Drops", "Brainrots", "Items", "LuckyBlocks"}
-    local foundFolder = nil
     
-    for _, folderName in ipairs(folders) do
-        local f = Workspace:FindFirstChild(folderName)
-        if f then
-            foundFolder = f
-            break
+    -- Scan Debris Folder
+    local debrisFolder = Workspace:FindFirstChild("Debris")
+    if debrisFolder then
+        for _, obj in ipairs(debrisFolder:GetChildren()) do
+            if obj:IsA("Model") or obj:IsA("BasePart") then
+                local lname = obj.Name:lower()
+                if not lname:find("tsunami") and not lname:find("wave") and not lname:find("wall") then
+                    table.insert(list, obj)
+                end
+            end
         end
     end
     
-    if foundFolder then
-        for _, obj in ipairs(foundFolder:GetChildren()) do
-            table.insert(list, obj)
-        end
-    else
-        -- Scan Workspace child layer for item objects
-        for _, obj in ipairs(Workspace:GetChildren()) do
-            if obj:IsA("Model") or obj:IsA("BasePart") then
-                local lname = obj.Name:lower()
-                if lname:find("brainrot") or lname:find("item") or lname:find("drop") or lname:find("block") or obj:FindFirstChild("TouchInterest") or obj:FindFirstChildOfClass("ProximityPrompt") then
-                    if not Players:GetPlayerFromCharacter(obj) and obj ~= LocalPlayer.Character then
-                        table.insert(list, obj)
-                    end
+    -- Scan Workspace Child Layer
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj:IsA("Model") or obj:IsA("BasePart") then
+            local lname = obj.Name:lower()
+            if (lname:find("brainrot") or lname:find("item") or lname:find("drop") or lname:find("block")) and not lname:find("tsunami") and not lname:find("wave") and not lname:find("wall") then
+                if not Players:GetPlayerFromCharacter(obj) and obj ~= LocalPlayer.Character then
+                    table.insert(list, obj)
                 end
             end
         end
