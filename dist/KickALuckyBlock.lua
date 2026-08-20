@@ -329,23 +329,50 @@ local function triggerNearestPrompt()
     end
 end
 
+-- Helper to check if a block is nearby
+local function isBlockNearby()
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return false end
+    
+    local minDistance = 35 -- 35 studs detection limit
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("ProximityPrompt") then
+            local pos = getPromptPosition(obj)
+            if pos then
+                local dist = (root.Position - pos).Magnitude
+                if dist < minDistance then
+                    return true
+                end
+            end
+        end
+    end
+    return false
+end
+
 task.spawn(function()
     while true do
-        task.wait(0.2) -- Safe cooldown for high-precision kick remote fires
+        task.wait(1.5) -- Safe rate-limit cooldown to prevent server bans
         if _G.AutoKick then
             pcall(function()
-                if _G.KickRemote then
-                    -- Construct dynamic perfect kick arguments
-                    local currentZone = (_G.KickArgs and _G.KickArgs[2]) or 1
-                    local serverTime = pcall(function() return workspace:GetServerTimeNow() end) and workspace:GetServerTimeNow() or tick()
-                    
-                    if _G.KickRemote:IsA("RemoteEvent") then
-                        _G.KickRemote:FireServer(1, currentZone, serverTime)
-                    elseif _G.KickRemote:IsA("RemoteFunction") then
-                        _G.KickRemote:InvokeServer(1, currentZone, serverTime)
+                if isBlockNearby() then
+                    if _G.KickRemote and _G.KickArgs then
+                        -- Extract captured accuracy, zone, and time values
+                        local accuracy = _G.KickArgs[1] or 0.8
+                        local zone = _G.KickArgs[2] or 1
+                        
+                        -- Dynamic timestamp matching game timing
+                        local serverTime = pcall(function() return workspace:GetServerTimeNow() end) and workspace:GetServerTimeNow() or tick()
+                        
+                        if _G.KickRemote:IsA("RemoteEvent") then
+                            _G.KickRemote:FireServer(accuracy, zone, serverTime)
+                        elseif _G.KickRemote:IsA("RemoteFunction") then
+                            _G.KickRemote:InvokeServer(accuracy, zone, serverTime)
+                        end
+                    else
+                        -- Safe Proximity Prompt fallback if no remote is captured yet
+                        triggerNearestPrompt()
                     end
-                else
-                    triggerNearestPrompt()
                 end
             end)
         end
