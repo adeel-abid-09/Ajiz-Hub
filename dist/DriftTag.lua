@@ -1,6 +1,6 @@
 --[[
     ========================================================================
-    🔥 AJIZ HUB - BLOX FRUITS (MODULAR GAME LOGIC) 🔥
+    ⚡ AJIZ HUB - DRIFT TAG (MODULAR GAME LOGIC) ⚡
     ========================================================================
 --]]
 
@@ -10,7 +10,6 @@ local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local VirtualUser = game:GetService("VirtualUser")
 local RunService = game:GetService("RunService")
 
 -- Safe CoreGui Retrieval
@@ -19,35 +18,24 @@ pcall(function()
     CoreGui = game:GetService("CoreGui")
 end)
 
--- Safe Player Acquisition
+-- Safe Player Acquisition (No infinite yield)
 local LocalPlayer = Players.LocalPlayer
 if not LocalPlayer then
-    repeat task.wait() LocalPlayer = Players.LocalPlayer until LocalPlayer
+    local start = os.clock()
+    repeat 
+        task.wait(0.1) 
+        LocalPlayer = Players.LocalPlayer 
+    until LocalPlayer or (os.clock() - start) > 10
+end
+if not LocalPlayer then
+    LocalPlayer = Players.PlayerAdded:Wait()
 end
 
--- Safe Remote Acquisition (Retries in background until found)
-local CommF = nil
-task.spawn(function()
-    while not CommF do
-        pcall(function()
-            local remotes = ReplicatedStorage:WaitForChild("Remotes", 4)
-            if remotes then
-                CommF = remotes:WaitForChild("CommF_", 4)
-            end
-        end)
-        if not CommF then
-            task.wait(1)
-        end
-    end
-end)
-
--- Global Feature Toggles
-_G.AutoLevel = false
-_G.AutoQuest = false
-_G.FastAttack = false
-_G.BringMobs = false
-_G.AutoBuso = false
-_G.Noclip = false
+-- Global State Management
+_G.AutoPassActive = false
+_G.CarFlyActive = false
+_G.SpeedBoostActive = false
+_G.CarSpeedValue = 100
 
 -- In-game Notification Helper
 local function Notify(title, msg, dur)
@@ -61,412 +49,70 @@ local function Notify(title, msg, dur)
     end)
 end
 
--- ========================================================================
--- 🏝️ ISLAND & QUEST DATABASE (SEA 1)
--- ========================================================================
-local Islands = {
-    { Name = "Windmill (Starter)", CFrame = CFrame.new(1059, 16, 1549) },
-    { Name = "Marine Starter",    CFrame = CFrame.new(-2572, 7, 2045) },
-    { Name = "Jungle Island",     CFrame = CFrame.new(-1601, 37, 153) },
-    { Name = "Pirate Village",    CFrame = CFrame.new(-1203, 4, 3915) },
-    { Name = "Desert Island",     CFrame = CFrame.new(900, 6, 4390) },
-    { Name = "Frozen Village",    CFrame = CFrame.new(1385, 87, -1298) },
-    { Name = "Marine Fortress",   CFrame = CFrame.new(-5035, 29, 4325) },
-    { Name = "Skylands",          CFrame = CFrame.new(-4840, 718, -2620) },
-    { Name = "Prison",            CFrame = CFrame.new(4875, 5, 735) },
-    { Name = "Colosseum",         CFrame = CFrame.new(-1425, 7, -2792) },
-    { Name = "Magma Village",     CFrame = CFrame.new(-5245, 8, 8505) },
-    { Name = "Underwater City",   CFrame = CFrame.new(61163, 11, 1819) },
-    { Name = "Fountain City",     CFrame = CFrame.new(5125, 59, 4105) }
-}
+-- =================================================================
+-- REMOTE & GAMEPLAY SCANNER
+-- =================================================================
+local detectedTagRemotes = {}
 
-local QuestDatabase = {
-    { Level = 1,    Quest = "BanditQuest1",    Mob = "Bandit",       LevelReq = 1,  CFrame = CFrame.new(1059, 16, 1549) },
-    { Level = 10,   Quest = "JungleQuest",     Mob = "Monkey",       LevelReq = 1,  CFrame = CFrame.new(-1601, 37, 153) },
-    { Level = 15,   Quest = "JungleQuest",     Mob = "Gorilla",      LevelReq = 2,  CFrame = CFrame.new(-1237, 6, -486) },
-    { Level = 30,   Quest = "BuggyQuest",      Mob = "Pirate",       LevelReq = 1,  CFrame = CFrame.new(-1203, 4, 3915) },
-    { Level = 60,   Quest = "DesertQuest",     Mob = "Desert Bandit",LevelReq = 1,  CFrame = CFrame.new(900, 6, 4390) },
-    { Level = 90,   Quest = "SnowQuest",       Mob = "Snow Bandit",  LevelReq = 1,  CFrame = CFrame.new(1385, 87, -1298) },
-    { Level = 120,  Quest = "MarineQuest2",    Mob = "Chief Petty Officer", LevelReq = 1, CFrame = CFrame.new(-5035, 29, 4325) },
-    { Level = 150,  Quest = "SkyQuest",        Mob = "Sky Bandit",   LevelReq = 1,  CFrame = CFrame.new(-4840, 718, -2620) },
-    { Level = 190,  Quest = "PrisonerQuest",   Mob = "Prisoner",     LevelReq = 1,  CFrame = CFrame.new(4875, 5, 735) },
-    { Level = 225,  Quest = "ColosseumQuest",  Mob = "Gladiator",    LevelReq = 1,  CFrame = CFrame.new(-1425, 7, -2792) },
-    { Level = 250,  Quest = "ColosseumQuest",  Mob = "Toga Warrior", LevelReq = 2,  CFrame = CFrame.new(-1425, 7, -2792) },
-    { Level = 300,  Quest = "MagmaQuest",      Mob = "Military Soldier", LevelReq = 1, CFrame = CFrame.new(-5245, 8, 8505) },
-    { Level = 330,  Quest = "MagmaQuest",      Mob = "Military Spy", LevelReq = 2,  CFrame = CFrame.new(-5245, 8, 8505) },
-    { Level = 375,  Quest = "FishmanQuest",    Mob = "Fishman Warrior", LevelReq = 1, CFrame = CFrame.new(61163, 11, 1819) },
-    { Level = 400,  Quest = "FishmanQuest",    Mob = "Fishman Commando", LevelReq = 2, CFrame = CFrame.new(61163, 11, 1819) },
-    { Level = 450,  Quest = "SkyQuest2",       Mob = "God's Guard",  LevelReq = 1,  CFrame = CFrame.new(-4840, 718, -2620) },
-    { Level = 475,  Quest = "SkyQuest2",       Mob = "Shanda",       LevelReq = 2,  CFrame = CFrame.new(-4840, 718, -2620) },
-    { Level = 625,  Quest = "FountainQuest",   Mob = "Galleon Pirate", LevelReq = 1, CFrame = CFrame.new(5125, 59, 4105) },
+local function scanGameRemotes()
+    detectedTagRemotes = {}
+    for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+            local lname = string.lower(obj.Name)
+            if string.find(lname, "tag") or string.find(lname, "pass") or string.find(lname, "bomb") or string.find(lname, "hit") or string.find(lname, "touch") then
+                table.insert(detectedTagRemotes, obj)
+            end
+        end
+    end
+end
+pcall(scanGameRemotes)
+
+-- Smart Bomb Detector
+local function localPlayerHasBomb()
+    local char = LocalPlayer.Character
+    if not char then return false end
     
-    { Level = 700,  Quest = "Area1Quest",      Mob = "Raider",       LevelReq = 1,  CFrame = CFrame.new(-425, 73, 1836) },
-    { Level = 1500, Quest = "PortQuest1",      Mob = "Pirate Millionaire", LevelReq = 1, CFrame = CFrame.new(-290, 44, 5580) }
-}
-
--- Safe Float & Anti-Physics Fall BodyVelocity
-local FloatBodyVelocity = nil
-local function EnableFloat(root)
-    if not FloatBodyVelocity or not FloatBodyVelocity.Parent then
-        FloatBodyVelocity = Instance.new("BodyVelocity")
-        FloatBodyVelocity.Name = "AjizFloat"
-        FloatBodyVelocity.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-        FloatBodyVelocity.Velocity = Vector3.zero
-        FloatBodyVelocity.Parent = root
-    end
-end
-
-local function DisableFloat()
-    if FloatBodyVelocity then
-        FloatBodyVelocity:Destroy()
-        FloatBodyVelocity = nil
-    end
-end
-
--- Continuous Noclip Engine
-RunService.Stepped:Connect(function()
-    if _G.AutoLevel or _G.Noclip then
-        pcall(function()
-            local char = LocalPlayer.Character
-            if char then
-                for _, part in ipairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") and part.CanCollide then
-                        part.CanCollide = false
-                    end
-                end
-            end
-        end)
-    end
-end)
-
--- Unified Safe Teleport & Tweening (Supports continuous farm flying)
-local currentTween = nil
-
-local function SafeTeleport(targetCFrame)
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-
-    if currentTween then
-        currentTween:Cancel()
-        currentTween = nil
-    end
-
-    _G.Noclip = true
-    EnableFloat(root)
-
-    local dist = (root.Position - targetCFrame.Position).Magnitude
-    if dist < 40 then
-        root.CFrame = targetCFrame
-        DisableFloat()
-        _G.Noclip = false
-        return
-    end
-
-    local speed = 300
-    local tweenInfo = TweenInfo.new(dist / speed, Enum.EasingStyle.Linear)
-    currentTween = TweenService:Create(root, tweenInfo, { CFrame = targetCFrame })
-    currentTween:Play()
-    currentTween.Completed:Connect(function()
-        DisableFloat()
-        _G.Noclip = false
-        currentTween = nil
-    end)
-    return currentTween
-end
-
-local function FarmTeleport(targetCFrame)
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
-
-    local dist = (root.Position - targetCFrame.Position).Magnitude
-    if dist < 45 then
-        if currentTween then
-            currentTween:Cancel()
-            currentTween = nil
-        end
-        root.CFrame = targetCFrame
-        DisableFloat()
-        return
-    end
-
-    -- If already tweening to target, let it run
-    if currentTween and currentTween.PlaybackState == Enum.PlaybackState.Playing then
-        return
-    end
-
-    _G.Noclip = true
-    EnableFloat(root)
-
-    local speed = 300
-    local tweenInfo = TweenInfo.new(dist / speed, Enum.EasingStyle.Linear)
-    currentTween = TweenService:Create(root, tweenInfo, { CFrame = targetCFrame })
-    currentTween:Play()
-    currentTween.Completed:Connect(function()
-        DisableFloat()
-        _G.Noclip = false
-        currentTween = nil
-    end)
-end
-
--- Equip Best Attack Tool
-local function AutoEquipWeapon()
-    local char = LocalPlayer.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if not hum then return end
-
-    for _, tool in ipairs(char:GetChildren()) do
-        if tool:IsA("Tool") then return end
-    end
-
-    local backpack = LocalPlayer:FindFirstChild("Backpack")
-    if backpack then
-        for _, tool in ipairs(backpack:GetChildren()) do
-            if tool:IsA("Tool") and (tool.ToolTip == "Melee" or tool.ToolTip == "Sword" or tool.ToolTip == "Blox Fruit") then
-                hum:EquipTool(tool)
-                break
-            end
+    -- 1. Check Attributes on Player & Character
+    for k, v in pairs(LocalPlayer:GetAttributes()) do
+        local lname = string.lower(tostring(k))
+        if (string.find(lname, "it") or string.find(lname, "bomb") or string.find(lname, "tag")) and v == true then
+            return true
         end
     end
-end
-
--- Get Current Quest Info for Player Level
-local function GetPlayerLevel()
-    local data = LocalPlayer:FindFirstChild("Data")
-    if data and data:FindFirstChild("Level") then
-        return data.Level.Value
-    end
-    return 1
-end
-
-local function GetCurrentQuest()
-    local myLvl = GetPlayerLevel()
-    local selected = QuestDatabase[1]
-    for _, q in ipairs(QuestDatabase) do
-        if myLvl >= q.Level then
-            selected = q
+    for k, v in pairs(char:GetAttributes()) do
+        local lname = string.lower(tostring(k))
+        if (string.find(lname, "it") or string.find(lname, "bomb") or string.find(lname, "tag")) and v == true then
+            return true
         end
     end
-
-    -- Dynamic Level 1 Quest adjustment based on Player Team (Pirate vs Marine)
-    if selected.Level == 1 then
-        local isMarine = false
-        pcall(function()
-            if LocalPlayer.Team and string.find(LocalPlayer.Team.Name:lower(), "marine") then
-                isMarine = true
-            end
-        end)
-        
-        if isMarine then
-            return {
-                Level = 1,
-                Quest = "MarineQuest",
-                Mob = "Trainee",
-                LevelReq = 1,
-                CFrame = CFrame.new(-2572, 7, 2045)
-            }
-        else
-            return {
-                Level = 1,
-                Quest = "BanditQuest1",
-                Mob = "Bandit",
-                LevelReq = 1,
-                CFrame = CFrame.new(1059, 16, 1549)
-            }
+    
+    -- 2. Check Children inside Character (Tools, Particles, Bomb Models)
+    for _, child in ipairs(char:GetChildren()) do
+        local lname = string.lower(child.Name)
+        if string.find(lname, "bomb") or string.find(lname, "tag") or string.find(lname, "it") or string.find(lname, "potato") or child:IsA("Tool") then
+            return true
         end
     end
-
-    return selected
-end
-
--- Find Target Enemy Mob in Workspace (Checks Enemies folder with Workspace fallback)
-local function GetTargetMob(mobName)
-    local target = nil
-    pcall(function()
-        -- 1. Search in Workspace.Enemies
-        local enemies = Workspace:FindFirstChild("Enemies")
-        if enemies then
-            for _, mob in ipairs(enemies:GetChildren()) do
-                if string.find(mob.Name:lower(), mobName:lower()) then
-                    local hum = mob:FindFirstChildOfClass("Humanoid")
-                    local root = mob:FindFirstChild("HumanoidRootPart")
-                    if hum and hum.Health > 0 and root then
-                        target = mob
-                        return
-                    end
+    
+    -- 3. Check workspace value holders
+    for _, descendant in ipairs(workspace:GetDescendants()) do
+        if descendant:IsA("StringValue") or descendant:IsA("ObjectValue") then
+            local lname = string.lower(descendant.Name)
+            if string.find(lname, "bomb") or string.find(lname, "tag") or string.find(lname, "it") then
+                if descendant.Value == LocalPlayer.Name or descendant.Value == LocalPlayer or descendant.Value == char then
+                    return true
                 end
             end
         end
-
-        -- 2. Fallback: Search directly in Workspace
-        for _, mob in ipairs(Workspace:GetChildren()) do
-            if mob:IsA("Model") and string.find(mob.Name:lower(), mobName:lower()) then
-                local hum = mob:FindFirstChildOfClass("Humanoid")
-                local root = mob:FindFirstChild("HumanoidRootPart")
-                if hum and hum.Health > 0 and root and not Players:GetPlayerFromCharacter(mob) then
-                    target = mob
-                    return
-                end
-            end
-        end
-    end)
-    return target
+    end
+    
+    -- If no explicit game flag found, fallback to true so Auto Pass functions when toggle is ON
+    return true
 end
 
--- ========================================================================
--- ⚡ AUTOMATION BACKGROUND WORKERS
--- ========================================================================
-
--- 1. Fast Attack Loop
-task.spawn(function()
-    while true do
-        task.wait(0.08)
-        if _G.FastAttack or _G.AutoLevel then
-            pcall(function()
-                local char = LocalPlayer.Character
-                local tool = char and char:FindFirstChildOfClass("Tool")
-                if tool then
-                    tool:Activate()
-                end
-
-                -- Delta / PC Controller Virtual Click
-                VirtualUser:CaptureController()
-                VirtualUser:Button1Down(Vector2.new(999, 999))
-                VirtualUser:Button1Up(Vector2.new(999, 999))
-            end)
-        end
-    end
-end)
-
--- 2. Auto Buso Haki Loop
-task.spawn(function()
-    while true do
-        task.wait(2)
-        if _G.AutoBuso and CommF then
-            pcall(function()
-                local char = LocalPlayer.Character
-                if char and not char:FindFirstChild("HasBuso") then
-                    CommF:InvokeServer("Buso")
-                end
-            end)
-        end
-    end
-end)
-
--- 3. Bring Mobs Loop (Magnet with Workspace fallback)
-task.spawn(function()
-    while true do
-        task.wait(0.2)
-        if _G.BringMobs and _G.AutoLevel then
-            pcall(function()
-                local char = LocalPlayer.Character
-                local root = char and char:FindFirstChild("HumanoidRootPart")
-                if not root then return end
-
-                local qInfo = GetCurrentQuest()
-                local list = {}
-
-                -- Gather from Workspace.Enemies
-                local enemies = Workspace:FindFirstChild("Enemies")
-                if enemies then
-                    for _, mob in ipairs(enemies:GetChildren()) do
-                        table.insert(list, mob)
-                    end
-                end
-                -- Gather from direct children of Workspace
-                for _, mob in ipairs(Workspace:GetChildren()) do
-                    if mob:IsA("Model") and not Players:GetPlayerFromCharacter(mob) then
-                        table.insert(list, mob)
-                    end
-                end
-
-                for _, mob in ipairs(list) do
-                    if string.find(mob.Name:lower(), qInfo.Mob:lower()) then
-                        local mRoot = mob:FindFirstChild("HumanoidRootPart")
-                        local mHum = mob:FindFirstChildOfClass("Humanoid")
-                        if mRoot and mHum and mHum.Health > 0 then
-                            local dist = (mRoot.Position - root.Position).Magnitude
-                            if dist <= 250 and dist > 4 then
-                                mRoot.CFrame = root.CFrame * CFrame.new(0, -6, 0)
-                                mRoot.CanCollide = false
-                                mHum.WalkSpeed = 0
-                                mRoot.Velocity = Vector3.zero
-                            end
-                        end
-                    end
-                end
-            end)
-        end
-    end
-end)
-
--- 4. Auto Quest Loop
-task.spawn(function()
-    while true do
-        task.wait(1.5)
-        if (_G.AutoQuest or _G.AutoLevel) and CommF then
-            pcall(function()
-                local gui = LocalPlayer.PlayerGui:FindFirstChild("Main")
-                local questFrame = gui and gui:FindFirstChild("Quest")
-                local hasQuest = questFrame and questFrame.Visible
-
-                if not hasQuest then
-                    local qInfo = GetCurrentQuest()
-                    CommF:InvokeServer("StartQuest", qInfo.Quest, qInfo.LevelReq)
-                end
-            end)
-        end
-    end
-end)
-
--- 5. Auto Level Master Farm Loop
-task.spawn(function()
-    while true do
-        task.wait(0.1)
-        if _G.AutoLevel then
-            pcall(function()
-                local char = LocalPlayer.Character
-                local root = char and char:FindFirstChild("HumanoidRootPart")
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
-                if not root or not hum or hum.Health <= 0 then return end
-
-                AutoEquipWeapon()
-
-                local qInfo = GetCurrentQuest()
-                local targetMob = GetTargetMob(qInfo.Mob)
-
-                if targetMob then
-                    -- Cancel travel tween if we have a target
-                    if currentTween then
-                        currentTween:Cancel()
-                        currentTween = nil
-                    end
-                    EnableFloat(root)
-                    local mRoot = targetMob:FindFirstChild("HumanoidRootPart")
-                    if mRoot then
-                        -- Position directly 7 studs above enemy with downward angle
-                        root.CFrame = mRoot.CFrame * CFrame.new(0, 7, 0) * CFrame.Angles(math.rad(-90), 0, 0)
-                        root.Velocity = Vector3.zero
-                    end
-                else
-                    -- Move to mob spawn area using smooth noclip flying to bypass anti-cheat
-                    FarmTeleport(qInfo.CFrame * CFrame.new(0, 10, 0))
-                end
-            end)
-        else
-            if currentTween then
-                currentTween:Cancel()
-                currentTween = nil
-            end
-            DisableFloat()
-        end
-    end
-end)
-
--- ========================================================================
+-- =================================================================
 -- 🎨 GUI INTERFACE DELEGATED TO AJIZLIB
--- ========================================================================
+-- =================================================================
 local AjizLib = (function()
 --[[
     ========================================================================
@@ -1233,55 +879,178 @@ end)()
 
 local Panel = AjizLib:CreateWindow({
     Title = "+ AJIZ HUB",
-    GameName = "Blox Fruits",
+    GameName = "Drift Tag",
     Footer = "Ajiz Hub"
 })
 
--- Auto Level
-Panel:AddToggle("Auto Level", false, function(state)
-    _G.AutoLevel = state
+-- 1. Auto Pass Bomb
+Panel:AddToggle("Auto Pass Bomb", false, function(state)
+    _G.AutoPassActive = state
     if state then
-        _G.AutoQuest = true
-        _G.FastAttack = true
-        _G.BringMobs = true
-        _G.AutoBuso = true
-        Notify("Ajiz Hub", "Auto Farm Started!", 2)
-    else
-        Notify("Ajiz Hub", "Auto Farm Stopped.", 2)
+        task.spawn(function()
+            while _G.AutoPassActive do
+                task.wait(0.02) -- Ultra fast 20ms loop
+                
+                if localPlayerHasBomb() then
+                    local myChar = LocalPlayer.Character
+                    if myChar then
+                        local myHumanoid = myChar:FindFirstChildWhichIsA("Humanoid")
+                        local mySeat = myHumanoid and myHumanoid.SeatPart
+                        local myRoot = mySeat or myChar:FindFirstChild("HumanoidRootPart")
+                        
+                        if myRoot then
+                            local closestPlayer = nil
+                            local closestTargetPart = nil
+                            local minDistance = math.huge
+                            
+                            for _, target in ipairs(Players:GetPlayers()) do
+                                if target ~= LocalPlayer and target.Character then
+                                    local tHumanoid = target.Character:FindFirstChildWhichIsA("Humanoid")
+                                    local tSeat = tHumanoid and tHumanoid.SeatPart
+                                    local tRoot = tSeat or target.Character:FindFirstChild("HumanoidRootPart")
+                                    
+                                    if tRoot then
+                                        local dist = (myRoot.Position - tRoot.Position).Magnitude
+                                        if dist < minDistance then
+                                            minDistance = dist
+                                            closestPlayer = target
+                                            closestTargetPart = tRoot
+                                        end
+                                    end
+                                end
+                            end
+                            
+                            if closestTargetPart and closestPlayer then
+                                -- 1. Direct CFrame Position Teleport (Overlap)
+                                local targetCFrame = closestTargetPart.CFrame
+                                if mySeat and mySeat:IsA("BasePart") then
+                                    mySeat.CFrame = targetCFrame
+                                end
+                                if myChar:FindFirstChild("HumanoidRootPart") then
+                                    myChar.HumanoidRootPart.CFrame = targetCFrame
+                                end
+                                
+                                -- 2. Trigger Touch Interest if supported
+                                if firetouchinterest then
+                                    pcall(function()
+                                        firetouchinterest(myRoot, closestTargetPart, 0)
+                                        task.wait()
+                                        firetouchinterest(myRoot, closestTargetPart, 1)
+                                    end)
+                                end
+                                
+                                -- 3. Fire detected Tag Remotes if available
+                                for _, remote in ipairs(detectedTagRemotes) do
+                                    pcall(function()
+                                        if remote:IsA("RemoteEvent") then
+                                            remote:FireServer(closestPlayer)
+                                            remote:FireServer(closestTargetPart)
+                                        elseif remote:IsA("RemoteFunction") then
+                                            remote:InvokeServer(closestPlayer)
+                                        end
+                                    end)
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end)
     end
 end)
 
--- Auto Quest
-Panel:AddToggle("Auto Quest", false, function(state)
-    _G.AutoQuest = state
+-- 2. Car Fly
+Panel:AddToggle("Car Fly", false, function(state)
+    _G.CarFlyActive = state
+    local UIS = game:GetService("UserInputService")
+    
+    if state then
+        task.spawn(function()
+            local bv = Instance.new("BodyVelocity")
+            bv.Name = "DriftTagFlyBV"
+            bv.MaxForce = Vector3.new(9e9, 9e9, 9e9)
+            bv.Velocity = Vector3.new(0, 0, 0)
+            
+            local bg = Instance.new("BodyGyro")
+            bg.Name = "DriftTagFlyBG"
+            bg.MaxTorque = Vector3.new(9e9, 9e9, 9e9)
+            bg.P = 9e4
+            
+            local flySpeed = 70
+            
+            while _G.CarFlyActive do
+                RunService.Heartbeat:Wait()
+                local char = LocalPlayer.Character
+                if char then
+                    local humanoid = char:FindFirstChildWhichIsA("Humanoid")
+                    local seat = humanoid and humanoid.SeatPart
+                    local targetPart = seat or char:FindFirstChild("HumanoidRootPart")
+                    
+                    if targetPart then
+                        bv.Parent = targetPart
+                        bg.Parent = targetPart
+                        
+                        local camera = workspace.CurrentCamera
+                        local moveDir = humanoid and humanoid.MoveDirection or Vector3.new()
+                        
+                        bg.CFrame = camera.CFrame
+                        
+                        local velocityDir = Vector3.new()
+                        if moveDir.Magnitude > 0 then
+                            velocityDir = camera.CFrame:VectorToWorldSpace(Vector3.new(moveDir.X, 0, moveDir.Z))
+                        end
+                        
+                        if UIS:IsKeyDown(Enum.KeyCode.Space) then
+                            velocityDir = velocityDir + Vector3.new(0, 1, 0)
+                        end
+                        if UIS:IsKeyDown(Enum.KeyCode.LeftShift) then
+                            velocityDir = velocityDir - Vector3.new(0, 1, 0)
+                        end
+                        
+                        if velocityDir.Magnitude > 0 then
+                            bv.Velocity = velocityDir.Unit * flySpeed
+                        else
+                            bv.Velocity = Vector3.new(0, 0.1, 0)
+                        end
+                    end
+                end
+            end
+            
+            bv:Destroy()
+            bg:Destroy()
+        end)
+    end
 end)
 
--- Fast Attack
-Panel:AddToggle("Fast Attack", false, function(state)
-    _G.FastAttack = state
+-- 3. Speed Boost
+Panel:AddToggle("Speed Boost", false, function(state)
+    _G.SpeedBoostActive = state
+    if state then
+        task.spawn(function()
+            while _G.SpeedBoostActive do
+                task.wait(0.03)
+                local speed = _G.CarSpeedValue or 100
+                local char = LocalPlayer.Character
+                if char then
+                    local humanoid = char:FindFirstChildWhichIsA("Humanoid")
+                    local seat = humanoid and humanoid.SeatPart
+                    if seat and seat:IsA("VehicleSeat") then
+                        seat.MaxSpeed = speed
+                        seat.AssemblyLinearVelocity = seat.CFrame.LookVector * speed
+                    elseif char:FindFirstChild("HumanoidRootPart") then
+                        if humanoid and humanoid.MoveDirection.Magnitude > 0 then
+                            char.HumanoidRootPart.AssemblyLinearVelocity = char.HumanoidRootPart.CFrame.LookVector * speed
+                        end
+                    end
+                end
+            end
+        end)
+    end
 end)
 
--- Bring Mobs (Magnet)
-Panel:AddToggle("Bring Mobs (Magnet)", false, function(state)
-    _G.BringMobs = state
+-- 4. Speed Slider Value
+Panel:AddSlider("Speed Value", 20, 300, 100, function(value)
+    _G.CarSpeedValue = value
 end)
 
--- Auto Buso Haki
-Panel:AddToggle("Auto Buso Haki", false, function(state)
-    _G.AutoBuso = state
-end)
-
--- Teleport Feature (Populates side flyout)
-local TeleportItems = {}
-for _, island in ipairs(Islands) do
-    table.insert(TeleportItems, {
-        Name = island.Name,
-        Callback = function()
-            Notify("Ajiz Teleport", "Teleporting to: " .. island.Name, 2)
-            SafeTeleport(island.CFrame)
-        end
-    })
-end
-Panel:AddTeleportButton("Teleport", TeleportItems)
-
-Notify("Ajiz Hub", "Ajiz Hub Blox Fruits Loaded!", 3)
+Notify("Ajiz Hub", "Drift Tag Script Loaded!", 3)

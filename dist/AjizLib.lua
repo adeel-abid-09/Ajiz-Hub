@@ -11,12 +11,28 @@
 
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local CoreGui = game:GetService("CoreGui")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
-local RbxAnalyticsService = game:GetService("RbxAnalyticsService")
 
-local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
+-- Safe CoreGui Retrieval
+local CoreGui = nil
+pcall(function()
+    CoreGui = game:GetService("CoreGui")
+end)
+
+-- Safe Player Acquisition (No infinite yield)
+local LocalPlayer = Players.LocalPlayer
+if not LocalPlayer then
+    local start = os.clock()
+    repeat 
+        task.wait(0.1) 
+        LocalPlayer = Players.LocalPlayer 
+    until LocalPlayer or (os.clock() - start) > 10
+end
+if not LocalPlayer then
+    -- Fallback/fail-safe if still nil
+    LocalPlayer = Players.PlayerAdded:Wait()
+end
 
 local AjizLib = {}
 AjizLib.__index = AjizLib
@@ -24,12 +40,22 @@ AjizLib.__index = AjizLib
 -- Safe Container Selector
 local function GetGuiContainer()
     if gethui then
-        return gethui()
-    elseif CoreGui then
-        return CoreGui
-    else
-        return LocalPlayer:WaitForChild("PlayerGui")
+        local success, res = pcall(gethui)
+        if success and res then return res end
     end
+    if CoreGui then
+        return CoreGui
+    end
+    -- Fallback to PlayerGui with a safe wait (to avoid infinite yield)
+    local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if not playerGui then
+        local start = os.clock()
+        while not playerGui and (os.clock() - start) < 5 do
+            task.wait(0.1)
+            playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        end
+    end
+    return playerGui or LocalPlayer:WaitForChild("PlayerGui")
 end
 
 -- Sleek Theme
@@ -101,7 +127,8 @@ local function GetDeviceHWID()
         if gethwid then
             hwid = gethwid()
         else
-            hwid = RbxAnalyticsService:GetClientId()
+            local rbxAnalytics = game:GetService("RbxAnalyticsService")
+            hwid = rbxAnalytics:GetClientId()
         end
     end)
     if hwid == "" then
@@ -157,15 +184,23 @@ function AjizLib:CreateWindow(config)
     ScreenGui.Name = "AjizHub_Panel"
     ScreenGui.ResetOnSpawn = false
     if syn and syn.protect_gui then pcall(function() syn.protect_gui(ScreenGui) end) end
-    ScreenGui.Parent = container
+    local success = pcall(function()
+        ScreenGui.Parent = container
+    end)
+    if not success then
+        pcall(function()
+            ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+        end)
+    end
 
     -- Mobile Draggable Toggle Button
     local MobileToggle = Instance.new("ImageButton")
     MobileToggle.Name = "MobileToggle"
-    MobileToggle.Size = UDim2.new(0, 36, 0, 36)
+    MobileToggle.Size = UDim2.new(0, 40, 0, 40)
     MobileToggle.Position = UDim2.new(0, 15, 0.45, 0)
     MobileToggle.BackgroundColor3 = Theme.Header
     MobileToggle.BorderSizePixel = 0
+    MobileToggle.Active = true
     MobileToggle.Parent = ScreenGui
     Instance.new("UICorner", MobileToggle).CornerRadius = UDim.new(0, 8)
 
@@ -179,7 +214,7 @@ function AjizLib:CreateWindow(config)
     MobileLabel.Font = Theme.Font
     MobileLabel.Text = "AJ"
     MobileLabel.TextColor3 = Theme.Accent
-    MobileLabel.TextSize = 13
+    MobileLabel.TextSize = 14
 
     MakeDraggable(MobileToggle)
 
@@ -190,7 +225,7 @@ function AjizLib:CreateWindow(config)
     MainFrame.Position = UDim2.new(0.5, -120, 0.4, -145)
     MainFrame.BackgroundColor3 = Theme.Background
     MainFrame.BorderSizePixel = 0
-    MainFrame.ClipsDescendants = true
+    MainFrame.ClipsDescendants = false
     MainFrame.Parent = ScreenGui
     Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
 
@@ -218,14 +253,15 @@ function AjizLib:CreateWindow(config)
     TitleLabel.Parent = Header
 
     local MinBtn = Instance.new("TextButton")
-    MinBtn.Size = UDim2.new(0, 22, 0, 22)
-    MinBtn.Position = UDim2.new(1, -28, 0.5, -11)
+    MinBtn.Size = UDim2.new(0, 26, 0, 26)
+    MinBtn.Position = UDim2.new(1, -32, 0.5, -13)
     MinBtn.BackgroundColor3 = Color3.fromRGB(28, 32, 44)
     MinBtn.Text = "▲"
     MinBtn.Font = Theme.Font
     MinBtn.TextColor3 = Theme.TextMuted
-    MinBtn.TextSize = 10
+    MinBtn.TextSize = 11
     MinBtn.AutoButtonColor = false
+    MinBtn.Active = true
     MinBtn.Parent = Header
     Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 4)
 
@@ -268,12 +304,12 @@ function AjizLib:CreateWindow(config)
     local isMin = false
     local isVis = true
 
-    MobileToggle.MouseButton1Click:Connect(function()
+    MobileToggle.Activated:Connect(function()
         isVis = not isVis
         MainFrame.Visible = isVis
     end)
 
-    MinBtn.MouseButton1Click:Connect(function()
+    MinBtn.Activated:Connect(function()
         isMin = not isMin
         if isMin then
             TweenService:Create(MainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -304,7 +340,7 @@ function AjizLib:CreateWindow(config)
         -- Main Container Frame
         local ItemFrame = Instance.new("Frame")
         ItemFrame.Name = title .. "_Container"
-        ItemFrame.Size = UDim2.new(1, 0, 0, 32)
+        ItemFrame.Size = UDim2.new(1, 0, 0, 36)
         ItemFrame.BackgroundColor3 = Theme.ItemBg
         ItemFrame.BorderSizePixel = 0
         ItemFrame.Parent = ScrollBody
@@ -315,20 +351,20 @@ function AjizLib:CreateWindow(config)
         ItemStroke.Thickness = 0.8
 
         local Title = Instance.new("TextLabel", ItemFrame)
-        Title.Size = UDim2.new(1, -38, 1, 0)
+        Title.Size = UDim2.new(1, -44, 1, 0)
         Title.Position = UDim2.new(0, 10, 0, 0)
         Title.BackgroundTransparency = 1
         Title.Font = Theme.Font
         Title.Text = title
         Title.TextColor3 = Theme.TextPrimary
-        Title.TextSize = 11
+        Title.TextSize = 11.5
         Title.TextXAlignment = Enum.TextXAlignment.Left
         Title.ZIndex = 2
 
         -- Square Checkbox Box
         local Box = Instance.new("Frame", ItemFrame)
-        Box.Size = UDim2.new(0, 16, 0, 16)
-        Box.Position = UDim2.new(1, -26, 0.5, -8)
+        Box.Size = UDim2.new(0, 20, 0, 20)
+        Box.Position = UDim2.new(1, -30, 0.5, -10)
         Box.BackgroundColor3 = state and Theme.CheckActive or Theme.CheckInactive
         Box.BorderSizePixel = 0
         Box.ZIndex = 2
@@ -340,7 +376,7 @@ function AjizLib:CreateWindow(config)
         Checkmark.Font = Theme.Font
         Checkmark.Text = "✓"
         Checkmark.TextColor3 = Color3.fromRGB(255, 255, 255)
-        Checkmark.TextSize = 10
+        Checkmark.TextSize = 12
         Checkmark.TextTransparency = state and 0 or 1
         Checkmark.ZIndex = 3
 
@@ -351,6 +387,7 @@ function AjizLib:CreateWindow(config)
         ItemBtn.BackgroundTransparency = 1
         ItemBtn.Text = ""
         ItemBtn.ZIndex = 10
+        ItemBtn.Active = true
         ItemBtn.Parent = ItemFrame
 
         local function update(newState)
@@ -364,7 +401,7 @@ function AjizLib:CreateWindow(config)
             task.spawn(callback, state)
         end
 
-        ItemBtn.MouseButton1Click:Connect(function()
+        ItemBtn.Activated:Connect(function()
             update(not state)
         end)
 
@@ -390,7 +427,7 @@ function AjizLib:CreateWindow(config)
         -- Main Container Frame
         local ItemFrame = Instance.new("Frame")
         ItemFrame.Name = title .. "_Container"
-        ItemFrame.Size = UDim2.new(1, 0, 0, 32)
+        ItemFrame.Size = UDim2.new(1, 0, 0, 36)
         ItemFrame.BackgroundColor3 = Theme.ItemBg
         ItemFrame.BorderSizePixel = 0
         ItemFrame.Parent = ScrollBody
@@ -401,19 +438,19 @@ function AjizLib:CreateWindow(config)
         ItemStroke.Thickness = 0.8
 
         local Title = Instance.new("TextLabel", ItemFrame)
-        Title.Size = UDim2.new(1, -38, 1, 0)
+        Title.Size = UDim2.new(1, -44, 1, 0)
         Title.Position = UDim2.new(0, 10, 0, 0)
         Title.BackgroundTransparency = 1
         Title.Font = Theme.Font
         Title.Text = title
         Title.TextColor3 = Theme.Accent
-        Title.TextSize = 11
+        Title.TextSize = 11.5
         Title.TextXAlignment = Enum.TextXAlignment.Left
         Title.ZIndex = 2
 
         local Arrow = Instance.new("TextLabel", ItemFrame)
         Arrow.Size = UDim2.new(0, 16, 0, 16)
-        Arrow.Position = UDim2.new(1, -26, 0.5, -8)
+        Arrow.Position = UDim2.new(1, -30, 0.5, -8)
         Arrow.BackgroundTransparency = 1
         Arrow.Font = Theme.Font
         Arrow.Text = "▶"
@@ -428,9 +465,10 @@ function AjizLib:CreateWindow(config)
         ItemBtn.BackgroundTransparency = 1
         ItemBtn.Text = ""
         ItemBtn.ZIndex = 10
+        ItemBtn.Active = true
         ItemBtn.Parent = ItemFrame
 
-        ItemBtn.MouseButton1Click:Connect(function()
+        ItemBtn.Activated:Connect(function()
             local clickTween = TweenService:Create(ItemFrame, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                 BackgroundColor3 = Theme.Accent
             })
@@ -487,17 +525,18 @@ function AjizLib:CreateWindow(config)
             FlyTitle.TextXAlignment = Enum.TextXAlignment.Left
 
             local FlyClose = Instance.new("TextButton", FlyHeader)
-            FlyClose.Size = UDim2.new(0, 20, 0, 20)
-            FlyClose.Position = UDim2.new(1, -26, 0.5, -10)
+            FlyClose.Size = UDim2.new(0, 24, 0, 24)
+            FlyClose.Position = UDim2.new(1, -28, 0.5, -12)
             FlyClose.BackgroundColor3 = Color3.fromRGB(35, 20, 25)
             FlyClose.Text = "×"
             FlyClose.Font = Theme.Font
             FlyClose.TextColor3 = Theme.Danger
-            FlyClose.TextSize = 12
+            FlyClose.TextSize = 13
             FlyClose.AutoButtonColor = false
+            FlyClose.Active = true
             Instance.new("UICorner", FlyClose).CornerRadius = UDim.new(0, 4)
 
-            FlyClose.MouseButton1Click:Connect(function()
+            FlyClose.Activated:Connect(function()
                 TeleportFlyout.Visible = false
             end)
 
@@ -520,21 +559,22 @@ function AjizLib:CreateWindow(config)
             -- Populate buttons
             for _, item in ipairs(items) do
                 local IslandBtn = Instance.new("TextButton", IslandScroll)
-                IslandBtn.Size = UDim2.new(1, 0, 0, 26)
+                IslandBtn.Size = UDim2.new(1, 0, 0, 32)
                 IslandBtn.BackgroundColor3 = Theme.ItemBg
                 IslandBtn.BorderSizePixel = 0
                 IslandBtn.AutoButtonColor = false
                 IslandBtn.Font = Theme.FontRegular
                 IslandBtn.Text = " " .. item.Name
                 IslandBtn.TextColor3 = Theme.TextPrimary
-                IslandBtn.TextSize = 10
+                IslandBtn.TextSize = 10.5
                 IslandBtn.TextXAlignment = Enum.TextXAlignment.Left
+                IslandBtn.Active = true
                 Instance.new("UICorner", IslandBtn).CornerRadius = UDim.new(0, 4)
 
                 IslandBtn.MouseEnter:Connect(function() IslandBtn.BackgroundColor3 = Theme.ItemHover end)
                 IslandBtn.MouseLeave:Connect(function() IslandBtn.BackgroundColor3 = Theme.ItemBg end)
 
-                IslandBtn.MouseButton1Click:Connect(function()
+                IslandBtn.Activated:Connect(function()
                     if item.Callback then
                         task.spawn(item.Callback)
                     end
@@ -544,7 +584,7 @@ function AjizLib:CreateWindow(config)
 
         local ItemFrame = Instance.new("Frame")
         ItemFrame.Name = title .. "_Container"
-        ItemFrame.Size = UDim2.new(1, 0, 0, 32)
+        ItemFrame.Size = UDim2.new(1, 0, 0, 36)
         ItemFrame.BackgroundColor3 = Theme.ItemBg
         ItemFrame.BorderSizePixel = 0
         ItemFrame.Parent = ScrollBody
@@ -555,19 +595,19 @@ function AjizLib:CreateWindow(config)
         ItemStroke.Thickness = 0.8
 
         local Title = Instance.new("TextLabel", ItemFrame)
-        Title.Size = UDim2.new(1, -38, 1, 0)
+        Title.Size = UDim2.new(1, -44, 1, 0)
         Title.Position = UDim2.new(0, 10, 0, 0)
         Title.BackgroundTransparency = 1
         Title.Font = Theme.Font
         Title.Text = title
         Title.TextColor3 = Theme.Accent
-        Title.TextSize = 11
+        Title.TextSize = 11.5
         Title.TextXAlignment = Enum.TextXAlignment.Left
         Title.ZIndex = 2
 
         local Arrow = Instance.new("TextLabel", ItemFrame)
         Arrow.Size = UDim2.new(0, 16, 0, 16)
-        Arrow.Position = UDim2.new(1, -26, 0.5, -8)
+        Arrow.Position = UDim2.new(1, -30, 0.5, -8)
         Arrow.BackgroundTransparency = 1
         Arrow.Font = Theme.Font
         Arrow.Text = "▶"
@@ -582,9 +622,10 @@ function AjizLib:CreateWindow(config)
         ItemBtn.BackgroundTransparency = 1
         ItemBtn.Text = ""
         ItemBtn.ZIndex = 10
+        ItemBtn.Active = true
         ItemBtn.Parent = ItemFrame
 
-        ItemBtn.MouseButton1Click:Connect(function()
+        ItemBtn.Activated:Connect(function()
             TeleportFlyout.Visible = not TeleportFlyout.Visible
         end)
 
@@ -594,6 +635,123 @@ function AjizLib:CreateWindow(config)
         ItemBtn.MouseLeave:Connect(function()
             ItemFrame.BackgroundColor3 = Theme.ItemBg
         end)
+    end
+
+    --[[
+        ADD SLIDER
+    --]]
+    function Panel:AddSlider(title, min, max, default, callback)
+        min = min or 0
+        max = max or 100
+        default = default or min
+        callback = callback or function() end
+
+        local currentVal = default
+
+        -- Main Container Frame
+        local ItemFrame = Instance.new("Frame")
+        ItemFrame.Name = title .. "_Container"
+        ItemFrame.Size = UDim2.new(1, 0, 0, 42)
+        ItemFrame.BackgroundColor3 = Theme.ItemBg
+        ItemFrame.BorderSizePixel = 0
+        ItemFrame.Parent = ScrollBody
+        Instance.new("UICorner", ItemFrame).CornerRadius = UDim.new(0, 5)
+
+        local ItemStroke = Instance.new("UIStroke", ItemFrame)
+        ItemStroke.Color = Theme.Border
+        ItemStroke.Thickness = 0.8
+
+        local Title = Instance.new("TextLabel", ItemFrame)
+        Title.Size = UDim2.new(1, -20, 0, 20)
+        Title.Position = UDim2.new(0, 10, 0, 2)
+        Title.BackgroundTransparency = 1
+        Title.Font = Theme.Font
+        Title.Text = title .. ": " .. tostring(default)
+        Title.TextColor3 = Theme.TextPrimary
+        Title.TextSize = 10.5
+        Title.TextXAlignment = Enum.TextXAlignment.Left
+        Title.ZIndex = 2
+
+        local Track = Instance.new("TextButton", ItemFrame)
+        Track.Name = "Track"
+        Track.Size = UDim2.new(1, -20, 0, 4)
+        Track.Position = UDim2.new(0, 10, 0, 26)
+        Track.BackgroundColor3 = Theme.CheckInactive
+        Track.BorderSizePixel = 0
+        Track.Text = ""
+        Track.AutoButtonColor = false
+        Track.ZIndex = 2
+        Instance.new("UICorner", Track).CornerRadius = UDim.new(0, 2)
+
+        local Fill = Instance.new("Frame", Track)
+        Fill.Size = UDim2.new(0, 0, 1, 0)
+        Fill.BackgroundColor3 = Theme.Accent
+        Fill.BorderSizePixel = 0
+        Fill.ZIndex = 3
+        Instance.new("UICorner", Fill).CornerRadius = UDim.new(0, 2)
+
+        local Knob = Instance.new("Frame", Fill)
+        Knob.Size = UDim2.new(0, 8, 0, 8)
+        Knob.Position = UDim2.new(1, -4, 0.5, -4)
+        Knob.BackgroundColor3 = Theme.Accent
+        Knob.BorderSizePixel = 0
+        Knob.ZIndex = 4
+        Instance.new("UICorner", Knob).CornerRadius = UDim.new(1, 0)
+
+        local function update(val, animate)
+            currentVal = math.clamp(val, min, max)
+            local displayVal = math.round(currentVal)
+            Title.Text = title .. ": " .. tostring(displayVal)
+            
+            local percentage = (currentVal - min) / (max - min)
+            local targetSize = UDim2.new(percentage, 0, 1, 0)
+            
+            if animate then
+                TweenService:Create(Fill, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    Size = targetSize
+                }):Play()
+            else
+                Fill.Size = targetSize
+            end
+            task.spawn(callback, displayVal)
+        end
+
+        update(default, false)
+
+        local isDragging = false
+        local function processInput(input)
+            local trackWidth = Track.AbsoluteSize.X
+            if trackWidth > 0 then
+                local relativeX = math.clamp(input.Position.X - Track.AbsolutePosition.X, 0, trackWidth)
+                local percentage = relativeX / trackWidth
+                local newValue = min + (max - min) * percentage
+                update(newValue, false)
+            end
+        end
+
+        Track.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                isDragging = true
+                processInput(input)
+            end
+        end)
+
+        UserInputService.InputChanged:Connect(function(input)
+            if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                processInput(input)
+            end
+        end)
+
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                isDragging = false
+            end
+        end)
+
+        return {
+            Set = update,
+            Get = function() return currentVal end
+        }
     end
 
     return Panel

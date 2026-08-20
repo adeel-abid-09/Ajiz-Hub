@@ -6,12 +6,17 @@
 
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local CoreGui = game:GetService("CoreGui")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+
+-- Safe CoreGui Retrieval
+local CoreGui = nil
+pcall(function()
+    CoreGui = game:GetService("CoreGui")
+end)
 
 -- Safe Player Acquisition
 local LocalPlayer = Players.LocalPlayer
@@ -48,45 +53,87 @@ end
 -- 🧠 UTILITIES & DETECTOR FUNCTIONS
 -- ========================================================================
 
--- Find all monsters in the game (NPCs with humanoids that are not players)
-local function getMonsters()
-    local list = {}
+local ActiveCoins = {}
+local ActiveMonsters = {}
+
+local function isCoin(v)
+    if not v:IsA("BasePart") then return false end
+    if v:IsDescendantOf(LocalPlayer.Character) or v:IsDescendantOf(Players) then return false end
     
-    -- Scan workspace directly
-    for _, v in ipairs(Workspace:GetChildren()) do
-        if v:IsA("Model") and v:FindFirstChildOfClass("Humanoid") and not Players:GetPlayerFromCharacter(v) and v ~= LocalPlayer.Character then
-            table.insert(list, v)
-        end
+    local name = v.Name:lower()
+    local parentName = v.Parent and v.Parent.Name:lower() or ""
+    return name:find("coin") or parentName:find("coin") or name:find("token") or v:FindFirstChild("TouchInterest")
+end
+
+local function isMonster(v)
+    if not v:IsA("Model") then return false end
+    if v == LocalPlayer.Character or Players:GetPlayerFromCharacter(v) then return false end
+    
+    -- Check if it contains a humanoid or is named like a monster
+    local hum = v:FindFirstChildOfClass("Humanoid")
+    if hum then return true end
+    
+    local name = v.Name:lower()
+    if name:find("monster") or name:find("killer") or name:find("pursuer") or name:find("npc") then
+        return true
     end
-    
-    -- Scan sub-directories/folders that might contain NPCs
-    for _, folder in ipairs(Workspace:GetDescendants()) do
-        if folder:IsA("Folder") and (folder.Name:lower():find("monster") or folder.Name:lower():find("enemy") or folder.Name:lower():find("killer") or folder.Name:lower():find("pursuer") or folder.Name:lower():find("npc")) then
-            for _, v in ipairs(folder:GetChildren()) do
-                if v:IsA("Model") and v:FindFirstChildOfClass("Humanoid") then
-                    table.insert(list, v)
-                end
+    return false
+end
+
+local function registerObject(v)
+    pcall(function()
+        if isCoin(v) then
+            if not table.find(ActiveCoins, v) then
+                table.insert(ActiveCoins, v)
+            end
+        elseif isMonster(v) then
+            if not table.find(ActiveMonsters, v) then
+                table.insert(ActiveMonsters, v)
             end
         end
+    end)
+end
+
+-- Initial Scan
+for _, v in ipairs(Workspace:GetDescendants()) do
+    registerObject(v)
+end
+
+-- Dynamic Tracking
+Workspace.DescendantAdded:Connect(function(v)
+    task.wait()
+    if v and v.Parent then
+        registerObject(v)
+        if v:IsA("Humanoid") and v.Parent:IsA("Model") then
+            registerObject(v.Parent)
+        end
     end
-    
+end)
+
+local function getMonsters()
+    local list = {}
+    local temp = {}
+    for _, m in ipairs(ActiveMonsters) do
+        if m and m.Parent and m:FindFirstChildOfClass("Humanoid") then
+            table.insert(list, m)
+            table.insert(temp, m)
+        end
+    end
+    ActiveMonsters = temp
     return list
 end
 
--- Find all Huss Coins currently spawned in Workspace
+-- Find all Huss Coins currently spawned in Workspace (using cached tracker)
 local function findCoins()
     local list = {}
-    for _, v in ipairs(Workspace:GetDescendants()) do
-        if v:IsA("BasePart") then
-            local name = v.Name:lower()
-            -- Check names containing "coin" or check if it has a TouchInterest transmitter child
-            if name:find("coin") or v:FindFirstChild("TouchInterest") then
-                if not v:IsDescendantOf(LocalPlayer.Character) and not v:IsDescendantOf(Players) then
-                    table.insert(list, v)
-                end
-            end
+    local temp = {}
+    for _, c in ipairs(ActiveCoins) do
+        if c and c.Parent and c:IsDescendantOf(Workspace) then
+            table.insert(list, c)
+            table.insert(temp, c)
         end
     end
+    ActiveCoins = temp
     return list
 end
 
@@ -107,7 +154,7 @@ end
 -- 1. Auto Collect Huss Coins Loop
 task.spawn(function()
     while true do
-        task.wait(0.5)
+        task.wait(0.3)
         if _G.AutoCollectCoins then
             pcall(function()
                 local char = LocalPlayer.Character
@@ -141,15 +188,14 @@ end)
 -- 2. Freeze Monsters Loop
 task.spawn(function()
     while true do
-        task.wait(1)
+        task.wait(0.5)
         if _G.FreezeMonsters then
             pcall(function()
                 local monsters = getMonsters()
                 for _, monster in ipairs(monsters) do
-                    for _, part in ipairs(monster:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.Anchored = true
-                        end
+                    local root = monster:FindFirstChild("HumanoidRootPart")
+                    if root then
+                        root.Anchored = true
                     end
                     local hum = monster:FindFirstChildOfClass("Humanoid")
                     if hum then
@@ -193,26 +239,53 @@ task.spawn(function()
     end
 end)
 
--- 4. WalkSpeed / JumpPower Modifier Loop
+-- 4. Persistent WalkSpeed / JumpPower Setup
+local function setupCharacter(char)
+    local hum = char:WaitForChild("Humanoid", 5)
+    if hum then
+        -- Enforce stats when values change (bypasses resets)
+        hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+            if _G.SpeedBoost and hum.WalkSpeed ~= 80 then
+                hum.WalkSpeed = 80
+            end
+        end)
+        hum:GetPropertyChangedSignal("JumpPower"):Connect(function()
+            if _G.JumpBoost and hum.JumpPower ~= 100 then
+                hum.JumpPower = 100
+                hum.UseJumpPower = true
+            end
+        end)
+
+        -- Initial application
+        if _G.SpeedBoost then
+            hum.WalkSpeed = 80
+        end
+        if _G.JumpBoost then
+            hum.JumpPower = 100
+            hum.UseJumpPower = true
+        end
+    end
+end
+
+if LocalPlayer.Character then
+    setupCharacter(LocalPlayer.Character)
+end
+LocalPlayer.CharacterAdded:Connect(setupCharacter)
+
+-- Periodic safety net loop for WalkSpeed/JumpPower
 task.spawn(function()
     while true do
-        task.wait(0.5)
+        task.wait(1)
         pcall(function()
             local char = LocalPlayer.Character
             local hum = char and char:FindFirstChildOfClass("Humanoid")
             if hum then
-                if _G.SpeedBoost then
+                if _G.SpeedBoost and hum.WalkSpeed ~= 80 then
                     hum.WalkSpeed = 80
-                else
-                    hum.WalkSpeed = 16
                 end
-                
-                if _G.JumpBoost then
+                if _G.JumpBoost and hum.JumpPower ~= 100 then
                     hum.JumpPower = 100
                     hum.UseJumpPower = true
-                else
-                    -- Restore game defaults
-                    hum.UseJumpPower = false
                 end
             end
         end)
@@ -229,6 +302,36 @@ UserInputService.JumpRequest:Connect(function()
                 hum:ChangeState(Enum.HumanoidStateType.Jumping)
             end
         end)
+    end
+end)
+
+-- 6. Persistent Auto Safe Zone Platform Loop
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if _G.AutoSafeZone then
+            pcall(function()
+                local char = LocalPlayer.Character
+                local root = char and char:FindFirstChild("HumanoidRootPart")
+                if not root then return end
+
+                if not SafePlatform or not SafePlatform.Parent then
+                    SafePlatform = Instance.new("Part")
+                    SafePlatform.Name = "AjizSafePlatform"
+                    SafePlatform.Size = Vector3.new(30, 1, 30)
+                    SafePlatform.Position = Vector3.new(root.Position.X, 800, root.Position.Z)
+                    SafePlatform.Anchored = true
+                    SafePlatform.BrickColor = BrickColor.new("Baby blue")
+                    SafePlatform.Material = Enum.Material.Neon
+                    SafePlatform.Parent = Workspace
+                end
+
+                -- Keep player teleported to safe platform if they fall or reset
+                if math.abs(root.Position.Y - SafePlatform.Position.Y) > 8 then
+                    root.CFrame = SafePlatform.CFrame * CFrame.new(0, 3, 0)
+                end
+            end)
+        end
     end
 end)
 
@@ -249,12 +352,28 @@ local AjizLib = (function()
 
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local CoreGui = game:GetService("CoreGui")
 local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
-local RbxAnalyticsService = game:GetService("RbxAnalyticsService")
 
-local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
+-- Safe CoreGui Retrieval
+local CoreGui = nil
+pcall(function()
+    CoreGui = game:GetService("CoreGui")
+end)
+
+-- Safe Player Acquisition (No infinite yield)
+local LocalPlayer = Players.LocalPlayer
+if not LocalPlayer then
+    local start = os.clock()
+    repeat 
+        task.wait(0.1) 
+        LocalPlayer = Players.LocalPlayer 
+    until LocalPlayer or (os.clock() - start) > 10
+end
+if not LocalPlayer then
+    -- Fallback/fail-safe if still nil
+    LocalPlayer = Players.PlayerAdded:Wait()
+end
 
 local AjizLib = {}
 AjizLib.__index = AjizLib
@@ -262,12 +381,22 @@ AjizLib.__index = AjizLib
 -- Safe Container Selector
 local function GetGuiContainer()
     if gethui then
-        return gethui()
-    elseif CoreGui then
-        return CoreGui
-    else
-        return LocalPlayer:WaitForChild("PlayerGui")
+        local success, res = pcall(gethui)
+        if success and res then return res end
     end
+    if CoreGui then
+        return CoreGui
+    end
+    -- Fallback to PlayerGui with a safe wait (to avoid infinite yield)
+    local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+    if not playerGui then
+        local start = os.clock()
+        while not playerGui and (os.clock() - start) < 5 do
+            task.wait(0.1)
+            playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
+        end
+    end
+    return playerGui or LocalPlayer:WaitForChild("PlayerGui")
 end
 
 -- Sleek Theme
@@ -339,7 +468,8 @@ local function GetDeviceHWID()
         if gethwid then
             hwid = gethwid()
         else
-            hwid = RbxAnalyticsService:GetClientId()
+            local rbxAnalytics = game:GetService("RbxAnalyticsService")
+            hwid = rbxAnalytics:GetClientId()
         end
     end)
     if hwid == "" then
@@ -395,15 +525,23 @@ function AjizLib:CreateWindow(config)
     ScreenGui.Name = "AjizHub_Panel"
     ScreenGui.ResetOnSpawn = false
     if syn and syn.protect_gui then pcall(function() syn.protect_gui(ScreenGui) end) end
-    ScreenGui.Parent = container
+    local success = pcall(function()
+        ScreenGui.Parent = container
+    end)
+    if not success then
+        pcall(function()
+            ScreenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+        end)
+    end
 
     -- Mobile Draggable Toggle Button
     local MobileToggle = Instance.new("ImageButton")
     MobileToggle.Name = "MobileToggle"
-    MobileToggle.Size = UDim2.new(0, 36, 0, 36)
+    MobileToggle.Size = UDim2.new(0, 40, 0, 40)
     MobileToggle.Position = UDim2.new(0, 15, 0.45, 0)
     MobileToggle.BackgroundColor3 = Theme.Header
     MobileToggle.BorderSizePixel = 0
+    MobileToggle.Active = true
     MobileToggle.Parent = ScreenGui
     Instance.new("UICorner", MobileToggle).CornerRadius = UDim.new(0, 8)
 
@@ -417,7 +555,7 @@ function AjizLib:CreateWindow(config)
     MobileLabel.Font = Theme.Font
     MobileLabel.Text = "AJ"
     MobileLabel.TextColor3 = Theme.Accent
-    MobileLabel.TextSize = 13
+    MobileLabel.TextSize = 14
 
     MakeDraggable(MobileToggle)
 
@@ -428,7 +566,7 @@ function AjizLib:CreateWindow(config)
     MainFrame.Position = UDim2.new(0.5, -120, 0.4, -145)
     MainFrame.BackgroundColor3 = Theme.Background
     MainFrame.BorderSizePixel = 0
-    MainFrame.ClipsDescendants = true
+    MainFrame.ClipsDescendants = false
     MainFrame.Parent = ScreenGui
     Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
 
@@ -456,14 +594,15 @@ function AjizLib:CreateWindow(config)
     TitleLabel.Parent = Header
 
     local MinBtn = Instance.new("TextButton")
-    MinBtn.Size = UDim2.new(0, 22, 0, 22)
-    MinBtn.Position = UDim2.new(1, -28, 0.5, -11)
+    MinBtn.Size = UDim2.new(0, 26, 0, 26)
+    MinBtn.Position = UDim2.new(1, -32, 0.5, -13)
     MinBtn.BackgroundColor3 = Color3.fromRGB(28, 32, 44)
     MinBtn.Text = "▲"
     MinBtn.Font = Theme.Font
     MinBtn.TextColor3 = Theme.TextMuted
-    MinBtn.TextSize = 10
+    MinBtn.TextSize = 11
     MinBtn.AutoButtonColor = false
+    MinBtn.Active = true
     MinBtn.Parent = Header
     Instance.new("UICorner", MinBtn).CornerRadius = UDim.new(0, 4)
 
@@ -506,12 +645,12 @@ function AjizLib:CreateWindow(config)
     local isMin = false
     local isVis = true
 
-    MobileToggle.MouseButton1Click:Connect(function()
+    MobileToggle.Activated:Connect(function()
         isVis = not isVis
         MainFrame.Visible = isVis
     end)
 
-    MinBtn.MouseButton1Click:Connect(function()
+    MinBtn.Activated:Connect(function()
         isMin = not isMin
         if isMin then
             TweenService:Create(MainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -542,7 +681,7 @@ function AjizLib:CreateWindow(config)
         -- Main Container Frame
         local ItemFrame = Instance.new("Frame")
         ItemFrame.Name = title .. "_Container"
-        ItemFrame.Size = UDim2.new(1, 0, 0, 32)
+        ItemFrame.Size = UDim2.new(1, 0, 0, 36)
         ItemFrame.BackgroundColor3 = Theme.ItemBg
         ItemFrame.BorderSizePixel = 0
         ItemFrame.Parent = ScrollBody
@@ -553,20 +692,20 @@ function AjizLib:CreateWindow(config)
         ItemStroke.Thickness = 0.8
 
         local Title = Instance.new("TextLabel", ItemFrame)
-        Title.Size = UDim2.new(1, -38, 1, 0)
+        Title.Size = UDim2.new(1, -44, 1, 0)
         Title.Position = UDim2.new(0, 10, 0, 0)
         Title.BackgroundTransparency = 1
         Title.Font = Theme.Font
         Title.Text = title
         Title.TextColor3 = Theme.TextPrimary
-        Title.TextSize = 11
+        Title.TextSize = 11.5
         Title.TextXAlignment = Enum.TextXAlignment.Left
         Title.ZIndex = 2
 
         -- Square Checkbox Box
         local Box = Instance.new("Frame", ItemFrame)
-        Box.Size = UDim2.new(0, 16, 0, 16)
-        Box.Position = UDim2.new(1, -26, 0.5, -8)
+        Box.Size = UDim2.new(0, 20, 0, 20)
+        Box.Position = UDim2.new(1, -30, 0.5, -10)
         Box.BackgroundColor3 = state and Theme.CheckActive or Theme.CheckInactive
         Box.BorderSizePixel = 0
         Box.ZIndex = 2
@@ -578,7 +717,7 @@ function AjizLib:CreateWindow(config)
         Checkmark.Font = Theme.Font
         Checkmark.Text = "✓"
         Checkmark.TextColor3 = Color3.fromRGB(255, 255, 255)
-        Checkmark.TextSize = 10
+        Checkmark.TextSize = 12
         Checkmark.TextTransparency = state and 0 or 1
         Checkmark.ZIndex = 3
 
@@ -589,6 +728,7 @@ function AjizLib:CreateWindow(config)
         ItemBtn.BackgroundTransparency = 1
         ItemBtn.Text = ""
         ItemBtn.ZIndex = 10
+        ItemBtn.Active = true
         ItemBtn.Parent = ItemFrame
 
         local function update(newState)
@@ -602,7 +742,7 @@ function AjizLib:CreateWindow(config)
             task.spawn(callback, state)
         end
 
-        ItemBtn.MouseButton1Click:Connect(function()
+        ItemBtn.Activated:Connect(function()
             update(not state)
         end)
 
@@ -628,7 +768,7 @@ function AjizLib:CreateWindow(config)
         -- Main Container Frame
         local ItemFrame = Instance.new("Frame")
         ItemFrame.Name = title .. "_Container"
-        ItemFrame.Size = UDim2.new(1, 0, 0, 32)
+        ItemFrame.Size = UDim2.new(1, 0, 0, 36)
         ItemFrame.BackgroundColor3 = Theme.ItemBg
         ItemFrame.BorderSizePixel = 0
         ItemFrame.Parent = ScrollBody
@@ -639,19 +779,19 @@ function AjizLib:CreateWindow(config)
         ItemStroke.Thickness = 0.8
 
         local Title = Instance.new("TextLabel", ItemFrame)
-        Title.Size = UDim2.new(1, -38, 1, 0)
+        Title.Size = UDim2.new(1, -44, 1, 0)
         Title.Position = UDim2.new(0, 10, 0, 0)
         Title.BackgroundTransparency = 1
         Title.Font = Theme.Font
         Title.Text = title
         Title.TextColor3 = Theme.Accent
-        Title.TextSize = 11
+        Title.TextSize = 11.5
         Title.TextXAlignment = Enum.TextXAlignment.Left
         Title.ZIndex = 2
 
         local Arrow = Instance.new("TextLabel", ItemFrame)
         Arrow.Size = UDim2.new(0, 16, 0, 16)
-        Arrow.Position = UDim2.new(1, -26, 0.5, -8)
+        Arrow.Position = UDim2.new(1, -30, 0.5, -8)
         Arrow.BackgroundTransparency = 1
         Arrow.Font = Theme.Font
         Arrow.Text = "▶"
@@ -666,9 +806,10 @@ function AjizLib:CreateWindow(config)
         ItemBtn.BackgroundTransparency = 1
         ItemBtn.Text = ""
         ItemBtn.ZIndex = 10
+        ItemBtn.Active = true
         ItemBtn.Parent = ItemFrame
 
-        ItemBtn.MouseButton1Click:Connect(function()
+        ItemBtn.Activated:Connect(function()
             local clickTween = TweenService:Create(ItemFrame, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
                 BackgroundColor3 = Theme.Accent
             })
@@ -725,17 +866,18 @@ function AjizLib:CreateWindow(config)
             FlyTitle.TextXAlignment = Enum.TextXAlignment.Left
 
             local FlyClose = Instance.new("TextButton", FlyHeader)
-            FlyClose.Size = UDim2.new(0, 20, 0, 20)
-            FlyClose.Position = UDim2.new(1, -26, 0.5, -10)
+            FlyClose.Size = UDim2.new(0, 24, 0, 24)
+            FlyClose.Position = UDim2.new(1, -28, 0.5, -12)
             FlyClose.BackgroundColor3 = Color3.fromRGB(35, 20, 25)
             FlyClose.Text = "×"
             FlyClose.Font = Theme.Font
             FlyClose.TextColor3 = Theme.Danger
-            FlyClose.TextSize = 12
+            FlyClose.TextSize = 13
             FlyClose.AutoButtonColor = false
+            FlyClose.Active = true
             Instance.new("UICorner", FlyClose).CornerRadius = UDim.new(0, 4)
 
-            FlyClose.MouseButton1Click:Connect(function()
+            FlyClose.Activated:Connect(function()
                 TeleportFlyout.Visible = false
             end)
 
@@ -758,21 +900,22 @@ function AjizLib:CreateWindow(config)
             -- Populate buttons
             for _, item in ipairs(items) do
                 local IslandBtn = Instance.new("TextButton", IslandScroll)
-                IslandBtn.Size = UDim2.new(1, 0, 0, 26)
+                IslandBtn.Size = UDim2.new(1, 0, 0, 32)
                 IslandBtn.BackgroundColor3 = Theme.ItemBg
                 IslandBtn.BorderSizePixel = 0
                 IslandBtn.AutoButtonColor = false
                 IslandBtn.Font = Theme.FontRegular
                 IslandBtn.Text = " " .. item.Name
                 IslandBtn.TextColor3 = Theme.TextPrimary
-                IslandBtn.TextSize = 10
+                IslandBtn.TextSize = 10.5
                 IslandBtn.TextXAlignment = Enum.TextXAlignment.Left
+                IslandBtn.Active = true
                 Instance.new("UICorner", IslandBtn).CornerRadius = UDim.new(0, 4)
 
                 IslandBtn.MouseEnter:Connect(function() IslandBtn.BackgroundColor3 = Theme.ItemHover end)
                 IslandBtn.MouseLeave:Connect(function() IslandBtn.BackgroundColor3 = Theme.ItemBg end)
 
-                IslandBtn.MouseButton1Click:Connect(function()
+                IslandBtn.Activated:Connect(function()
                     if item.Callback then
                         task.spawn(item.Callback)
                     end
@@ -782,7 +925,7 @@ function AjizLib:CreateWindow(config)
 
         local ItemFrame = Instance.new("Frame")
         ItemFrame.Name = title .. "_Container"
-        ItemFrame.Size = UDim2.new(1, 0, 0, 32)
+        ItemFrame.Size = UDim2.new(1, 0, 0, 36)
         ItemFrame.BackgroundColor3 = Theme.ItemBg
         ItemFrame.BorderSizePixel = 0
         ItemFrame.Parent = ScrollBody
@@ -793,19 +936,19 @@ function AjizLib:CreateWindow(config)
         ItemStroke.Thickness = 0.8
 
         local Title = Instance.new("TextLabel", ItemFrame)
-        Title.Size = UDim2.new(1, -38, 1, 0)
+        Title.Size = UDim2.new(1, -44, 1, 0)
         Title.Position = UDim2.new(0, 10, 0, 0)
         Title.BackgroundTransparency = 1
         Title.Font = Theme.Font
         Title.Text = title
         Title.TextColor3 = Theme.Accent
-        Title.TextSize = 11
+        Title.TextSize = 11.5
         Title.TextXAlignment = Enum.TextXAlignment.Left
         Title.ZIndex = 2
 
         local Arrow = Instance.new("TextLabel", ItemFrame)
         Arrow.Size = UDim2.new(0, 16, 0, 16)
-        Arrow.Position = UDim2.new(1, -26, 0.5, -8)
+        Arrow.Position = UDim2.new(1, -30, 0.5, -8)
         Arrow.BackgroundTransparency = 1
         Arrow.Font = Theme.Font
         Arrow.Text = "▶"
@@ -820,9 +963,10 @@ function AjizLib:CreateWindow(config)
         ItemBtn.BackgroundTransparency = 1
         ItemBtn.Text = ""
         ItemBtn.ZIndex = 10
+        ItemBtn.Active = true
         ItemBtn.Parent = ItemFrame
 
-        ItemBtn.MouseButton1Click:Connect(function()
+        ItemBtn.Activated:Connect(function()
             TeleportFlyout.Visible = not TeleportFlyout.Visible
         end)
 
@@ -832,6 +976,123 @@ function AjizLib:CreateWindow(config)
         ItemBtn.MouseLeave:Connect(function()
             ItemFrame.BackgroundColor3 = Theme.ItemBg
         end)
+    end
+
+    --[[
+        ADD SLIDER
+    --]]
+    function Panel:AddSlider(title, min, max, default, callback)
+        min = min or 0
+        max = max or 100
+        default = default or min
+        callback = callback or function() end
+
+        local currentVal = default
+
+        -- Main Container Frame
+        local ItemFrame = Instance.new("Frame")
+        ItemFrame.Name = title .. "_Container"
+        ItemFrame.Size = UDim2.new(1, 0, 0, 42)
+        ItemFrame.BackgroundColor3 = Theme.ItemBg
+        ItemFrame.BorderSizePixel = 0
+        ItemFrame.Parent = ScrollBody
+        Instance.new("UICorner", ItemFrame).CornerRadius = UDim.new(0, 5)
+
+        local ItemStroke = Instance.new("UIStroke", ItemFrame)
+        ItemStroke.Color = Theme.Border
+        ItemStroke.Thickness = 0.8
+
+        local Title = Instance.new("TextLabel", ItemFrame)
+        Title.Size = UDim2.new(1, -20, 0, 20)
+        Title.Position = UDim2.new(0, 10, 0, 2)
+        Title.BackgroundTransparency = 1
+        Title.Font = Theme.Font
+        Title.Text = title .. ": " .. tostring(default)
+        Title.TextColor3 = Theme.TextPrimary
+        Title.TextSize = 10.5
+        Title.TextXAlignment = Enum.TextXAlignment.Left
+        Title.ZIndex = 2
+
+        local Track = Instance.new("TextButton", ItemFrame)
+        Track.Name = "Track"
+        Track.Size = UDim2.new(1, -20, 0, 4)
+        Track.Position = UDim2.new(0, 10, 0, 26)
+        Track.BackgroundColor3 = Theme.CheckInactive
+        Track.BorderSizePixel = 0
+        Track.Text = ""
+        Track.AutoButtonColor = false
+        Track.ZIndex = 2
+        Instance.new("UICorner", Track).CornerRadius = UDim.new(0, 2)
+
+        local Fill = Instance.new("Frame", Track)
+        Fill.Size = UDim2.new(0, 0, 1, 0)
+        Fill.BackgroundColor3 = Theme.Accent
+        Fill.BorderSizePixel = 0
+        Fill.ZIndex = 3
+        Instance.new("UICorner", Fill).CornerRadius = UDim.new(0, 2)
+
+        local Knob = Instance.new("Frame", Fill)
+        Knob.Size = UDim2.new(0, 8, 0, 8)
+        Knob.Position = UDim2.new(1, -4, 0.5, -4)
+        Knob.BackgroundColor3 = Theme.Accent
+        Knob.BorderSizePixel = 0
+        Knob.ZIndex = 4
+        Instance.new("UICorner", Knob).CornerRadius = UDim.new(1, 0)
+
+        local function update(val, animate)
+            currentVal = math.clamp(val, min, max)
+            local displayVal = math.round(currentVal)
+            Title.Text = title .. ": " .. tostring(displayVal)
+            
+            local percentage = (currentVal - min) / (max - min)
+            local targetSize = UDim2.new(percentage, 0, 1, 0)
+            
+            if animate then
+                TweenService:Create(Fill, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                    Size = targetSize
+                }):Play()
+            else
+                Fill.Size = targetSize
+            end
+            task.spawn(callback, displayVal)
+        end
+
+        update(default, false)
+
+        local isDragging = false
+        local function processInput(input)
+            local trackWidth = Track.AbsoluteSize.X
+            if trackWidth > 0 then
+                local relativeX = math.clamp(input.Position.X - Track.AbsolutePosition.X, 0, trackWidth)
+                local percentage = relativeX / trackWidth
+                local newValue = min + (max - min) * percentage
+                update(newValue, false)
+            end
+        end
+
+        Track.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                isDragging = true
+                processInput(input)
+            end
+        end)
+
+        UserInputService.InputChanged:Connect(function(input)
+            if isDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                processInput(input)
+            end
+        end)
+
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                isDragging = false
+            end
+        end)
+
+        return {
+            Set = update,
+            Get = function() return currentVal end
+        }
     end
 
     return Panel
@@ -870,7 +1131,7 @@ Panel:AddToggle("Auto Safe Zone (Sky)", false, function(state)
             if not SafePlatform or not SafePlatform.Parent then
                 SafePlatform = Instance.new("Part")
                 SafePlatform.Name = "AjizSafePlatform"
-                SafePlatform.Size = Vector3.new(20, 1, 20)
+                SafePlatform.Size = Vector3.new(30, 1, 30)
                 SafePlatform.Position = Vector3.new(root.Position.X, 800, root.Position.Z)
                 SafePlatform.Anchored = true
                 SafePlatform.BrickColor = BrickColor.new("Baby blue")
@@ -885,6 +1146,7 @@ Panel:AddToggle("Auto Safe Zone (Sky)", false, function(state)
                 SafePlatform:Destroy()
                 SafePlatform = nil
             end
+            task.wait(0.1)
             root.CFrame = getSpawnCFrame()
             Notify("Ajiz Hub", "Safe Zone Disabled. Teleported to Spawn.", 2)
         end
@@ -897,14 +1159,17 @@ Panel:AddToggle("Freeze Monsters", false, function(state)
     if state then
         Notify("Ajiz Hub", "Monsters Frozen locally!", 2)
     else
-        -- Unanchor monsters
+        -- Unanchor monsters safely (only the RootPart)
         pcall(function()
             local monsters = getMonsters()
             for _, monster in ipairs(monsters) do
-                for _, part in ipairs(monster:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.Anchored = false
-                    end
+                local root = monster:FindFirstChild("HumanoidRootPart")
+                if root then
+                    root.Anchored = false
+                end
+                local hum = monster:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hum.WalkSpeed = 16
                 end
             end
         end)
@@ -925,11 +1190,31 @@ end)
 -- 5. Speed Boost
 Panel:AddToggle("WalkSpeed (Max)", false, function(state)
     _G.SpeedBoost = state
+    pcall(function()
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum.WalkSpeed = state and 80 or 16
+        end
+    end)
 end)
 
 -- 6. Jump Boost
 Panel:AddToggle("JumpPower (Max)", false, function(state)
     _G.JumpBoost = state
+    pcall(function()
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            if state then
+                hum.JumpPower = 100
+                hum.UseJumpPower = true
+            else
+                hum.UseJumpPower = false
+                hum.JumpPower = 50
+            end
+        end
+    end)
 end)
 
 -- 7. Infinite Jump
