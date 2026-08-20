@@ -148,6 +148,16 @@ local function Notify(title, msg, dur)
     end)
 end
 
+-- Safe Table Dump Helper (to avoid JSON serialization crashes on userdata)
+local function safeDump(tbl)
+    if type(tbl) ~= "table" then return tostring(tbl) end
+    local parts = {}
+    for k, v in pairs(tbl) do
+        table.insert(parts, tostring(k) .. ": " .. tostring(v) .. " (" .. typeof(v) .. ")")
+    end
+    return "{" .. table.concat(parts, ", ") .. "}"
+end
+
 -- Safe Spawn CFrame tracking
 local SpawnCFrame = nil
 local function getSafeSpawn()
@@ -195,19 +205,19 @@ task.spawn(function()
                     _G.LiftRemote = self
                     _G.LiftArgs = args
                     pcall(function()
-                        print("[AJIZ HOOK] Captured LIFT: " .. self.Name .. " | Args: " .. HttpService:JSONEncode(args))
+                        print("[AJIZ HOOK] Captured LIFT: " .. self.Name .. " | Args: " .. safeDump(args))
                     end)
                 elseif string.find(name, "kick") or string.find(name, "hit") or string.find(name, "block") or string.find(name, "launch") then
                     _G.KickRemote = self
                     _G.KickArgs = args
                     pcall(function()
-                        print("[AJIZ HOOK] Captured KICK: " .. self.Name .. " | Args: " .. HttpService:JSONEncode(args))
+                        print("[AJIZ HOOK] Captured KICK: " .. self.Name .. " | Args: " .. safeDump(args))
                     end)
                 elseif string.find(name, "rebirth") or string.find(name, "prestige") or string.find(name, "ascend") then
                     _G.RebirthRemote = self
                     _G.RebirthArgs = args
                     pcall(function()
-                        print("[AJIZ HOOK] Captured REBIRTH: " .. self.Name .. " | Args: " .. HttpService:JSONEncode(args))
+                        print("[AJIZ HOOK] Captured REBIRTH: " .. self.Name .. " | Args: " .. safeDump(args))
                     end)
                 end
             end
@@ -321,11 +331,19 @@ end
 
 task.spawn(function()
     while true do
-        task.wait(0.1)
+        task.wait(0.2) -- Safe cooldown for high-precision kick remote fires
         if _G.AutoKick then
             pcall(function()
                 if _G.KickRemote then
-                    _G.KickRemote:FireServer(unpack(_G.KickArgs or {}))
+                    -- Construct dynamic perfect kick arguments
+                    local currentZone = (_G.KickArgs and _G.KickArgs[2]) or 1
+                    local serverTime = pcall(function() return workspace:GetServerTimeNow() end) and workspace:GetServerTimeNow() or tick()
+                    
+                    if _G.KickRemote:IsA("RemoteEvent") then
+                        _G.KickRemote:FireServer(1, currentZone, serverTime)
+                    elseif _G.KickRemote:IsA("RemoteFunction") then
+                        _G.KickRemote:InvokeServer(1, currentZone, serverTime)
+                    end
                 else
                     triggerNearestPrompt()
                 end
