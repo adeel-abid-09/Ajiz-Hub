@@ -838,142 +838,136 @@ return AjizLib
 
 end)()
 
-AjizLib:ValidateKey({
-    KeyLink = "https://boostellar.com/ajiz-hub",
-    ValidKey = "ajiz123",
-    OnSuccess = function()
-        local Panel = AjizLib:CreateWindow({
-            Title = "+ AJIZ HUB",
-            GameName = "Find the Egg",
-            Footer = "Ajiz Hub"
-        })
-
-        -- 1. Auto Train Speed
-        Panel:AddToggle("Auto Train Speed", false, function(state)
-            _G.AutoTrain = state
-            if state then
-                equipTreadmillTool()
-                
-                -- Virtual Clicker Loop
-                task.spawn(function()
-                    pcall(function() VirtualUser:CaptureController() end)
-                    while _G.AutoTrain do
-                        task.wait(0.01)
-                        pcall(function()
-                            VirtualUser:Button1Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
-                            task.wait()
-                            VirtualUser:Button1Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
-                        end)
-                    end
-                end)
-
-                -- Remote & WalkSpeed Syncer
-                task.spawn(function()
-                    while _G.AutoTrain do
-                        task.wait(0.5)
-                        if _G.TrainRemote then
-                            _G.TrainRemote:FireServer(unpack(_G.TrainArgs or {}))
-                        end
-                        
-                        local char = LocalPlayer.Character
-                        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-                        if hum then
-                            local cur = getInGameSpeed()
-                            if cur and cur > 16 then hum.WalkSpeed = cur end
-                        end
-                    end
-                end)
-                Notify("Ajiz Hub", "Auto Train Speed Active!", 2)
-            else
-                Notify("Ajiz Hub", "Auto Train Speed Stopped.", 2)
-            end
-        end)
-
-        -- 2. Auto Hatch Eggs
-        Panel:AddToggle("Auto Hatch Eggs", false, function(state)
-            _G.AutoHatch = state
-            if state then
-                task.spawn(function()
-                    while _G.AutoHatch do
-                        task.wait(0.5)
-                        if _G.HatchRemote then
-                            _G.HatchRemote:FireServer(unpack(_G.HatchArgs or {}))
-                        else
-                            for _, v in ipairs(ReplicatedStorage:GetDescendants()) do
-                                if v:IsA("RemoteEvent") then
-                                    local name = string.lower(v.Name)
-                                    if name:find("hatch") or name:find("buyegg") or name:find("openegg") or name:find("cauldron") then
-                                        v:FireServer()
-                                    end
-                                end
-                            end
-                        end
-                    end
-                end)
-                Notify("Ajiz Hub", "Auto Hatch Active!", 2)
-            else
-                Notify("Ajiz Hub", "Auto Hatch Stopped.", 2)
-            end
-        end)
-
-        -- 3. Auto Farm Eggs (Loop)
-        Panel:AddToggle("Auto Farm Eggs (Loop)", false, function(state)
-            _G.AutoCollectEggs = state
-            if state then
-                Notify("Ajiz Hub", "Auto Egg Farm Loop Active!", 2)
-            else
-                Notify("Ajiz Hub", "Auto Egg Farm Loop Stopped.", 2)
-            end
-        end)
-
-        -- 4. Speed Boost (Max)
-        Panel:AddToggle("Speed Boost (Max)", false, function(state)
-            _G.SpeedBoost = state
-            local char = LocalPlayer.Character
-            local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-            if hum then
-                hum.WalkSpeed = state and 100 or 16
-            end
-        end)
-
-        -- 5. Noclip
-        Panel:AddToggle("Noclip", false, function(state)
-            _G.NoclipActive = state
-            if state then
-                _G.NoclipConnection = RunService.Stepped:Connect(function()
-                    if _G.NoclipActive and LocalPlayer.Character then
-                        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
-                            if part:IsA("BasePart") then
-                                part.CanCollide = false
-                            end
-                        end
-                    end
-                end)
-            else
-                if _G.NoclipConnection then
-                    _G.NoclipConnection:Disconnect()
-                    _G.NoclipConnection = nil
-                end
-                if LocalPlayer.Character then
-                    for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
-                        if part:IsA("BasePart") then
-                            part.CanCollide = true
-                        end
-                    end
-                end
-            end
-        end)
-
-        -- 6. TP to Best Egg
-        Panel:AddButton("TP to Best Egg", function()
-            TeleportToBestEgg()
-        end)
-
-        -- 7. TP to Base (Deposit)
-        Panel:AddButton("TP to Base (Deposit)", function()
-            TeleportToBase()
-        end)
-
-        Notify("Ajiz Hub", "Find the Egg [Brainrot] Script Loaded!", 3)
-    end
+local Panel = AjizLib:CreateWindow({
+    Title = "+ AJIZ HUB",
+    GameName = "Find the Egg",
+    Footer = "Ajiz Hub"
 })
+
+-- 1. Auto Train Speed
+Panel:AddToggle("Auto Train Speed", false, function(state)
+    _G.AutoTrain = state
+    if state then
+        equipTreadmillTool()
+        
+        -- Virtual Clicker Loop
+        task.spawn(function()
+            pcall(function() VirtualUser:CaptureController() end)
+            while _G.AutoTrain do
+                task.wait(0.01)
+                pcall(function()
+                    VirtualUser:Button1Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                    task.wait()
+                    VirtualUser:Button1Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
+                end)
+            end
+        end)
+
+        -- Remote & WalkSpeed Syncer
+        task.spawn(function()
+            while _G.AutoTrain do
+                task.wait(0.5)
+                if _G.TrainRemote then
+                    _G.TrainRemote:FireServer(unpack(_G.TrainArgs or {}))
+                end
+                
+                local char = LocalPlayer.Character
+                local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+                if hum then
+                    local cur = getInGameSpeed()
+                    if cur and cur > 16 then hum.WalkSpeed = cur end
+                end
+            end
+        end)
+        Notify("Ajiz Hub", "Auto Train Speed Active!", 2)
+    else
+        Notify("Ajiz Hub", "Auto Train Speed Stopped.", 2)
+    end
+end)
+
+-- 2. Auto Hatch Eggs
+Panel:AddToggle("Auto Hatch Eggs", false, function(state)
+    _G.AutoHatch = state
+    if state then
+        task.spawn(function()
+            while _G.AutoHatch do
+                task.wait(0.5)
+                if _G.HatchRemote then
+                    _G.HatchRemote:FireServer(unpack(_G.HatchArgs or {}))
+                else
+                    for _, v in ipairs(ReplicatedStorage:GetDescendants()) do
+                        if v:IsA("RemoteEvent") then
+                            local name = string.lower(v.Name)
+                            if name:find("hatch") or name:find("buyegg") or name:find("openegg") or name:find("cauldron") then
+                                v:FireServer()
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+        Notify("Ajiz Hub", "Auto Hatch Active!", 2)
+    else
+        Notify("Ajiz Hub", "Auto Hatch Stopped.", 2)
+    end
+end)
+
+-- 3. Auto Farm Eggs (Loop)
+Panel:AddToggle("Auto Farm Eggs (Loop)", false, function(state)
+    _G.AutoCollectEggs = state
+    if state then
+        Notify("Ajiz Hub", "Auto Egg Farm Loop Active!", 2)
+    else
+        Notify("Ajiz Hub", "Auto Egg Farm Loop Stopped.", 2)
+    end
+end)
+
+-- 4. Speed Boost (Max)
+Panel:AddToggle("Speed Boost (Max)", false, function(state)
+    _G.SpeedBoost = state
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if hum then
+        hum.WalkSpeed = state and 100 or 16
+    end
+end)
+
+-- 5. Noclip
+Panel:AddToggle("Noclip", false, function(state)
+    _G.NoclipActive = state
+    if state then
+        _G.NoclipConnection = RunService.Stepped:Connect(function()
+            if _G.NoclipActive and LocalPlayer.Character then
+                for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.CanCollide = false
+                    end
+                end
+            end
+        end)
+    else
+        if _G.NoclipConnection then
+            _G.NoclipConnection:Disconnect()
+            _G.NoclipConnection = nil
+        end
+        if LocalPlayer.Character then
+            for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+                if part:IsA("BasePart") then
+                    part.CanCollide = true
+                end
+            end
+        end
+    end
+end)
+
+-- 6. TP to Best Egg
+Panel:AddButton("TP to Best Egg", function()
+    TeleportToBestEgg()
+end)
+
+-- 7. TP to Base (Deposit)
+Panel:AddButton("TP to Base (Deposit)", function()
+    TeleportToBase()
+end)
+
+Notify("Ajiz Hub", "Find the Egg [Brainrot] Script Loaded!", 3)

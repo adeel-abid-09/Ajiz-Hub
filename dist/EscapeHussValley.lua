@@ -811,106 +811,100 @@ return AjizLib
 
 end)()
 
-AjizLib:ValidateKey({
-    KeyLink = "https://boostellar.com/ajiz-hub",
-    ValidKey = "ajiz123",
-    OnSuccess = function()
-        local Panel = AjizLib:CreateWindow({
-            Title = "+ AJIZ HUB",
-            GameName = "Escape Huss Valley",
-            Footer = "Ajiz Hub"
-        })
-
-        -- 1. Auto Collect Huss Coins
-        Panel:AddToggle("Auto Farm Coins", false, function(state)
-            _G.AutoCollectCoins = state
-            if state then
-                Notify("Ajiz Hub", "Auto Coin Farmer Activated!", 2)
-            else
-                Notify("Ajiz Hub", "Auto Coin Farmer Deactivated.", 2)
-            end
-        end)
-
-        -- 2. Auto Safe Zone Platform
-        Panel:AddToggle("Auto Safe Zone (Sky)", false, function(state)
-            _G.AutoSafeZone = state
-            pcall(function()
-                local char = LocalPlayer.Character
-                local root = char and char:FindFirstChild("HumanoidRootPart")
-                if not root then return end
-
-                if state then
-                    -- Create high-altitude neon safe spot
-                    if not SafePlatform or not SafePlatform.Parent then
-                        SafePlatform = Instance.new("Part")
-                        SafePlatform.Name = "AjizSafePlatform"
-                        SafePlatform.Size = Vector3.new(20, 1, 20)
-                        SafePlatform.Position = Vector3.new(root.Position.X, 800, root.Position.Z)
-                        SafePlatform.Anchored = true
-                        SafePlatform.BrickColor = BrickColor.new("Baby blue")
-                        SafePlatform.Material = Enum.Material.Neon
-                        SafePlatform.Parent = Workspace
-                    end
-                    root.CFrame = SafePlatform.CFrame * CFrame.new(0, 3, 0)
-                    Notify("Ajiz Hub", "Teleported to Sky Safe Zone!", 2)
-                else
-                    -- Destroy safe spot and teleport back to ground
-                    if SafePlatform then
-                        SafePlatform:Destroy()
-                        SafePlatform = nil
-                    end
-                    root.CFrame = getSpawnCFrame()
-                    Notify("Ajiz Hub", "Safe Zone Disabled. Teleported to Spawn.", 2)
-                end
-            end)
-        end)
-
-        -- 3. Freeze Monsters
-        Panel:AddToggle("Freeze Monsters", false, function(state)
-            _G.FreezeMonsters = state
-            if state then
-                Notify("Ajiz Hub", "Monsters Frozen locally!", 2)
-            else
-                -- Unanchor monsters
-                pcall(function()
-                    local monsters = getMonsters()
-                    for _, monster in ipairs(monsters) do
-                        for _, part in ipairs(monster:GetDescendants()) do
-                            if part:IsA("BasePart") then
-                                part.Anchored = false
-                            end
-                        end
-                    end
-                end)
-                Notify("Ajiz Hub", "Monsters Unfrozen.", 2)
-            end
-        end)
-
-        -- 4. Monster ESP
-        Panel:AddToggle("Monster ESP Outline", false, function(state)
-            _G.MonsterESP = state
-            if state then
-                Notify("Ajiz Hub", "Monster ESP Outline Enabled!", 2)
-            else
-                Notify("Ajiz Hub", "Monster ESP Outline Disabled.", 2)
-            end
-        end)
-
-        -- 5. Speed Boost
-        Panel:AddToggle("WalkSpeed (Max)", false, function(state)
-            _G.SpeedBoost = state
-        end)
-
-        -- 6. Jump Boost
-        Panel:AddToggle("JumpPower (Max)", false, function(state)
-            _G.JumpBoost = state
-        end)
-
-        -- 7. Infinite Jump
-        Panel:AddToggle("Infinite Jump", false, function(state)
-            _G.InfJump = state
-        end)
-
-        Notify("Ajiz Hub", "Escape Huss Valley Script Loaded!", 3)
-    end
+local Panel = AjizLib:CreateWindow({
+    Title = "+ AJIZ HUB",
+    GameName = "Escape Huss Valley",
+    Footer = "Ajiz Hub"
 })
+
+-- 1. Auto Collect Huss Coins
+Panel:AddToggle("Auto Farm Coins", false, function(state)
+    _G.AutoCollectCoins = state
+    if state then
+        Notify("Ajiz Hub", "Auto Coin Farmer Activated!", 2)
+    else
+        Notify("Ajiz Hub", "Auto Coin Farmer Deactivated.", 2)
+    end
+end)
+
+-- 2. Auto Safe Zone Platform
+Panel:AddToggle("Auto Safe Zone (Sky)", false, function(state)
+    _G.AutoSafeZone = state
+    pcall(function()
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+
+        if state then
+            -- Create high-altitude neon safe spot
+            if not SafePlatform or not SafePlatform.Parent then
+                SafePlatform = Instance.new("Part")
+                SafePlatform.Name = "AjizSafePlatform"
+                SafePlatform.Size = Vector3.new(20, 1, 20)
+                SafePlatform.Position = Vector3.new(root.Position.X, 800, root.Position.Z)
+                SafePlatform.Anchored = true
+                SafePlatform.BrickColor = BrickColor.new("Baby blue")
+                SafePlatform.Material = Enum.Material.Neon
+                SafePlatform.Parent = Workspace
+            end
+            root.CFrame = SafePlatform.CFrame * CFrame.new(0, 3, 0)
+            Notify("Ajiz Hub", "Teleported to Sky Safe Zone!", 2)
+        else
+            -- Destroy safe spot and teleport back to ground
+            if SafePlatform then
+                SafePlatform:Destroy()
+                SafePlatform = nil
+            end
+            root.CFrame = getSpawnCFrame()
+            Notify("Ajiz Hub", "Safe Zone Disabled. Teleported to Spawn.", 2)
+        end
+    end)
+end)
+
+-- 3. Freeze Monsters
+Panel:AddToggle("Freeze Monsters", false, function(state)
+    _G.FreezeMonsters = state
+    if state then
+        Notify("Ajiz Hub", "Monsters Frozen locally!", 2)
+    else
+        -- Unanchor monsters
+        pcall(function()
+            local monsters = getMonsters()
+            for _, monster in ipairs(monsters) do
+                for _, part in ipairs(monster:GetDescendants()) do
+                    if part:IsA("BasePart") then
+                        part.Anchored = false
+                    end
+                end
+            end
+        end)
+        Notify("Ajiz Hub", "Monsters Unfrozen.", 2)
+    end
+end)
+
+-- 4. Monster ESP
+Panel:AddToggle("Monster ESP Outline", false, function(state)
+    _G.MonsterESP = state
+    if state then
+        Notify("Ajiz Hub", "Monster ESP Outline Enabled!", 2)
+    else
+        Notify("Ajiz Hub", "Monster ESP Outline Disabled.", 2)
+    end
+end)
+
+-- 5. Speed Boost
+Panel:AddToggle("WalkSpeed (Max)", false, function(state)
+    _G.SpeedBoost = state
+end)
+
+-- 6. Jump Boost
+Panel:AddToggle("JumpPower (Max)", false, function(state)
+    _G.JumpBoost = state
+end)
+
+-- 7. Infinite Jump
+Panel:AddToggle("Infinite Jump", false, function(state)
+    _G.InfJump = state
+end)
+
+Notify("Ajiz Hub", "Escape Huss Valley Script Loaded!", 3)

@@ -908,63 +908,57 @@ return AjizLib
 
 end)()
 
-AjizLib:ValidateKey({
-    KeyLink = "https://boostellar.com/ajiz-hub",
-    ValidKey = "ajiz123",
-    OnSuccess = function()
-        local Panel = AjizLib:CreateWindow({
-            Title = "+ AJIZ HUB",
-            GameName = "Blox Fruits",
-            Footer = "Ajiz Hub"
-        })
-
-        -- Auto Level
-        Panel:AddToggle("Auto Level", false, function(state)
-            _G.AutoLevel = state
-            if state then
-                _G.AutoQuest = true
-                _G.FastAttack = true
-                _G.BringMobs = true
-                _G.AutoBuso = true
-                Notify("Ajiz Hub", "Auto Farm Started!", 2)
-            else
-                Notify("Ajiz Hub", "Auto Farm Stopped.", 2)
-            end
-        end)
-
-        -- Auto Quest
-        Panel:AddToggle("Auto Quest", false, function(state)
-            _G.AutoQuest = state
-        end)
-
-        -- Fast Attack
-        Panel:AddToggle("Fast Attack", false, function(state)
-            _G.FastAttack = state
-        end)
-
-        -- Bring Mobs (Magnet)
-        Panel:AddToggle("Bring Mobs (Magnet)", false, function(state)
-            _G.BringMobs = state
-        end)
-
-        -- Auto Buso Haki
-        Panel:AddToggle("Auto Buso Haki", false, function(state)
-            _G.AutoBuso = state
-        end)
-
-        -- Teleport Feature (Populates side flyout)
-        local TeleportItems = {}
-        for _, island in ipairs(Islands) do
-            table.insert(TeleportItems, {
-                Name = island.Name,
-                Callback = function()
-                    Notify("Ajiz Teleport", "Teleporting to: " .. island.Name, 2)
-                    SafeTeleport(island.CFrame)
-                end
-            })
-        end
-        Panel:AddTeleportButton("Teleport", TeleportItems)
-
-        Notify("Ajiz Hub", "Ajiz Hub Blox Fruits Loaded!", 3)
-    end
+local Panel = AjizLib:CreateWindow({
+    Title = "+ AJIZ HUB",
+    GameName = "Blox Fruits",
+    Footer = "Ajiz Hub"
 })
+
+-- Auto Level
+Panel:AddToggle("Auto Level", false, function(state)
+    _G.AutoLevel = state
+    if state then
+        _G.AutoQuest = true
+        _G.FastAttack = true
+        _G.BringMobs = true
+        _G.AutoBuso = true
+        Notify("Ajiz Hub", "Auto Farm Started!", 2)
+    else
+        Notify("Ajiz Hub", "Auto Farm Stopped.", 2)
+    end
+end)
+
+-- Auto Quest
+Panel:AddToggle("Auto Quest", false, function(state)
+    _G.AutoQuest = state
+end)
+
+-- Fast Attack
+Panel:AddToggle("Fast Attack", false, function(state)
+    _G.FastAttack = state
+end)
+
+-- Bring Mobs (Magnet)
+Panel:AddToggle("Bring Mobs (Magnet)", false, function(state)
+    _G.BringMobs = state
+end)
+
+-- Auto Buso Haki
+Panel:AddToggle("Auto Buso Haki", false, function(state)
+    _G.AutoBuso = state
+end)
+
+-- Teleport Feature (Populates side flyout)
+local TeleportItems = {}
+for _, island in ipairs(Islands) do
+    table.insert(TeleportItems, {
+        Name = island.Name,
+        Callback = function()
+            Notify("Ajiz Teleport", "Teleporting to: " .. island.Name, 2)
+            SafeTeleport(island.CFrame)
+        end
+    })
+end
+Panel:AddTeleportButton("Teleport", TeleportItems)
+
+Notify("Ajiz Hub", "Ajiz Hub Blox Fruits Loaded!", 3)
