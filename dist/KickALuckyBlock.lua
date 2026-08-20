@@ -93,6 +93,29 @@ _G.KickArgs = nil
 _G.RebirthRemote = nil
 _G.RebirthArgs = nil
 
+-- Auto-Detect Remotes at Startup
+local function autoDetectRemotes()
+    for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+            local name = obj.Name:lower()
+            -- 1. Kick Remote (Matches kick, hits, but avoids purchases)
+            if name:find("kick") and not name:find("purchase") and not name:find("gamepass") and not name:find("buy") then
+                _G.KickRemote = obj
+                _G.KickArgs = {}
+            -- 2. Rebirth Remote
+            elseif name:find("rebirth") or name:find("prestige") then
+                _G.RebirthRemote = obj
+                _G.RebirthArgs = {}
+            -- 3. Lift/Train Remote (Matches swing, click, lift, strength, but avoids purchases/shops)
+            elseif (name:find("lift") or name:find("train") or name:find("strength") or name:find("click") or name:find("swing")) and not name:find("shop") and not name:find("buy") then
+                _G.LiftRemote = obj
+                _G.LiftArgs = {}
+            end
+        end
+    end
+end
+pcall(autoDetectRemotes)
+
 -- In-game Notification Helper
 local function Notify(title, msg, dur)
     dur = dur or 3
@@ -186,9 +209,11 @@ local function equipWeightTool()
 end
 
 task.spawn(function()
+    local wasActive = false
     while true do
         task.wait(0.02)
         if _G.AutoLift then
+            wasActive = true
             pcall(function()
                 if _G.LiftRemote then
                     _G.LiftRemote:FireServer(unpack(_G.LiftArgs or {}))
@@ -199,9 +224,38 @@ task.spawn(function()
                     end
                 end
             end)
+        else
+            if wasActive then
+                wasActive = false
+                pcall(function()
+                    local char = LocalPlayer.Character
+                    local humanoid = char and char:FindFirstChildWhichIsA("Humanoid")
+                    if humanoid then
+                        humanoid:UnequipTools()
+                    end
+                end)
+            end
         end
     end
 end)
+
+-- Helper to safely resolve a ProximityPrompt's world position
+local function getPromptPosition(prompt)
+    local parent = prompt.Parent
+    if not parent then return nil end
+    
+    if parent:IsA("BasePart") then
+        return parent.Position
+    elseif parent:IsA("Attachment") then
+        return parent.WorldPosition
+    elseif parent:IsA("Model") then
+        local prim = parent.PrimaryPart or parent:FindFirstChildWhichIsA("BasePart")
+        if prim then
+            return prim.Position
+        end
+    end
+    return nil
+end
 
 -- 2. Auto Kick Block (Using Proximity Prompts near player)
 local function triggerNearestPrompt()
@@ -210,13 +264,13 @@ local function triggerNearestPrompt()
     if not root then return end
     
     local nearestPrompt = nil
-    local minDistance = 30
+    local minDistance = 50 -- Increased detection radius to 50 studs
     
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("ProximityPrompt") then
-            local parent = obj.Parent
-            if parent and parent:IsA("BasePart") then
-                local dist = (root.Position - parent.Position).Magnitude
+            local pos = getPromptPosition(obj)
+            if pos then
+                local dist = (root.Position - pos).Magnitude
                 if dist < minDistance then
                     minDistance = dist
                     nearestPrompt = obj
@@ -226,7 +280,9 @@ local function triggerNearestPrompt()
     end
     
     if nearestPrompt then
-        fireproximityprompt(nearestPrompt)
+        pcall(function()
+            fireproximityprompt(nearestPrompt, 1)
+        end)
     end
 end
 
