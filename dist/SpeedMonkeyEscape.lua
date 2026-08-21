@@ -384,6 +384,21 @@ local success, fatalErr = pcall(function()
         return tonumber(stage) or 1
     end
 
+    -- Detect player's total Wins from leaderstats
+    local function getPlayerWins()
+        local wins = 0
+        pcall(function()
+            local stats = LocalPlayer:FindFirstChild("leaderstats")
+            if stats then
+                local winsVal = stats:FindFirstChild("Wins") or stats:FindFirstChild("Win")
+                if winsVal then
+                    wins = winsVal.Value
+                end
+            end
+        end)
+        return tonumber(wins) or 0
+    end
+
     -- Dynamic parser to extract numerical reward values from BillboardGuis / part text labels
     local function getWinValue(part)
         local val = 0
@@ -428,7 +443,7 @@ local success, fatalErr = pcall(function()
         pcall(function()
             local function check(text)
                 local t = string.lower(text)
-                if t:find("level") or t:find("req") or t:find("lvl") then
+                if t:find("level") or t:find("req") or t:find("lvl") or t:find("win") then
                     local num = tonumber(t:match("%d+"))
                     if num then
                         req = math.max(req, num)
@@ -592,15 +607,16 @@ local success, fatalErr = pcall(function()
         end)
     end
 
-    -- Filter all cached treadmills to locate the best unlocked machine
+    -- Filter all cached treadmills to locate the best unlocked machine (based on either level or total wins)
     local function getBestTreadmill()
         local playerLvl = getCurrentStage()
+        local playerWins = getPlayerWins()
         local bestTreadmill = nil
         local maxVal = -1
         
         for _, t in ipairs(CachedTreadmills) do
-            local reqLvl = getTreadmillRequiredLevel(t)
-            if playerLvl >= reqLvl then
+            local req = getTreadmillRequiredLevel(t)
+            if playerLvl >= req or playerWins >= req then
                 local val = getTreadmillValue(t)
                 if val > maxVal then
                     maxVal = val
@@ -618,14 +634,11 @@ local success, fatalErr = pcall(function()
         pcall(function()
             for _, obj in ipairs(Workspace:GetDescendants()) do
                 if obj:IsA("BasePart") then
-                    -- Scan Treadmills (Flexible regex search to capture all treadmill parts/proximity pads)
+                    -- Scan Treadmills (Flexible search to find all real treadmills across all worlds/stages)
                     local lname = string.lower(obj.Name)
                     local isTreadmillPart = lname:find("treadmill") or lname:find("belt") or lname:find("platform")
                     
-                    -- Strictly exclude speed multiplier pads/checkpoints inside stages/obbi folder
-                    local isStageObject = hasAncestorKeyword(obj, "stage", "obby", "checkpoint") or hasAncestorKeyword(obj, "zone", "win", "finish")
-                    
-                    if isTreadmillPart and not isStageObject then
+                    if isTreadmillPart then
                         if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
                             -- Include primary parts containing proximity prompts or matching base designations
                             if obj:FindFirstChildOfClass("ProximityPrompt") or lname == "belt" or lname == "treadmill" or lname:find("treadmill") then
@@ -639,7 +652,7 @@ local success, fatalErr = pcall(function()
         CachedTreadmills = treadmills
         print("[AJIZ SYSTEM] Cached " .. #treadmills .. " treadmills.")
         
-        -- Resolve and cache the best training machine matching the player's level
+        -- Resolve and cache the best training machine matching the player's level/wins
         pcall(function()
             CachedBestTreadmill = getBestTreadmill()
         end)
@@ -681,7 +694,7 @@ local success, fatalErr = pcall(function()
     -- ========================================================================
 
     local isTraining = false
-    -- 1. Auto Train Worker (Super-fast speed training loop with concurrency protection)
+    -- 1. Auto Train Worker (Super-fast speed training loop with instant teleport and concurrency protection)
     task.spawn(function()
         while true do
             task.wait(0.02) -- Supersonic train clicks!
@@ -699,19 +712,21 @@ local success, fatalErr = pcall(function()
                             tool:Activate()
                         end
                         
-                        -- Teleport to the best unlocked training machine (e.g. +15 Speed treadmill matching Level 24)
+                        -- Teleport instantly to the best unlocked training machine (e.g. +26 Speed skate treadmill)
                         local treadmill = CachedBestTreadmill or CachedTreadmills[1]
                         local char = LocalPlayer.Character
                         local root = char and char:FindFirstChild("HumanoidRootPart")
                         if treadmill and root then
                             local dist = (root.Position - treadmill.Position).Magnitude
                             if dist > 8 then
-                                moveToCF(treadmill.CFrame * CFrame.new(0, 3.5, 0), 300)
-                                task.wait(0.2)
+                                -- Instant teleport onto the treadmill surface (Height 1.5 studs) to avoid server resets
+                                root.CFrame = treadmill.CFrame * CFrame.new(0, 1.5, 0)
+                                task.wait(0.1)
                                 triggerPrompt(treadmill) -- Trigger proximity prompt inside machine
+                                task.wait(0.2) -- Cooldown to stabilize on treadmill
                             end
                         end
-                        task.wait(0.1) -- Physics cooldown
+                        task.wait(0.08) -- Physics cooldown
                     end
                 end)
                 isTraining = false
