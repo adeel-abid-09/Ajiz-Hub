@@ -36,10 +36,25 @@ end
 _G.AutoTrain = false
 _G.AutoWin = false
 _G.AutoRebirth = false
+_G.SpeedBoost = false
+_G.InfJump = false
 
 _G.TrainRemote = nil
+_G.TrainArgs = nil
 _G.WinRemote = nil
+_G.WinArgs = nil
 _G.RebirthRemote = nil
+_G.RebirthArgs = nil
+
+-- Safe Table Dump Helper
+local function safeDump(tbl)
+    if type(tbl) ~= "table" then return tostring(tbl) end
+    local parts = {}
+    for k, v in pairs(tbl) do
+        table.insert(parts, tostring(k) .. ": " .. tostring(v) .. " (" .. typeof(v) .. ")")
+    end
+    return "{" .. table.concat(parts, ", ") .. "}"
+end
 
 -- In-game Notification Helper
 local function Notify(title, msg, dur)
@@ -53,29 +68,134 @@ local function Notify(title, msg, dur)
     end)
 end
 
--- Auto-Detect Remotes
-local function detectGameRemotes()
+-- ========================================================================
+-- 🧠 DUAL-LAYER REMOTE HOOK (C-Level Method Hooks + Metamethod Fallback)
+-- ========================================================================
+local successHook = false
+
+if hookfunction then
+    pcall(function()
+        local oldFireServer
+        oldFireServer = hookfunction(Instance.new("RemoteEvent").FireServer, newcclosure(function(self, ...)
+            if not checkcaller() then
+                local args = {...}
+                local name = string.lower(self.Name)
+                local firstArg = tostring(args[1] or ""):lower()
+                
+                pcall(function()
+                    print("[AJIZ HOOK FIRE] Remote: " .. self.Name .. " | Args: " .. safeDump(args))
+                end)
+                
+                if name:find("train") or name:find("click") or name:find("treadmill") or name:find("speed") or firstArg:find("train") or firstArg:find("click") or firstArg:find("treadmill") or firstArg:find("speed") then
+                    _G.TrainRemote = self
+                    _G.TrainArgs = args
+                elseif name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
+                    _G.WinRemote = self
+                    _G.WinArgs = args
+                elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
+                    _G.RebirthRemote = self
+                    _G.RebirthArgs = args
+                end
+            end
+            return oldFireServer(self, ...)
+        end))
+
+        local oldInvokeServer
+        oldInvokeServer = hookfunction(Instance.new("RemoteFunction").InvokeServer, newcclosure(function(self, ...)
+            if not checkcaller() then
+                local args = {...}
+                local name = string.lower(self.Name)
+                local firstArg = tostring(args[1] or ""):lower()
+                
+                pcall(function()
+                    print("[AJIZ HOOK INVOKE] Remote: " .. self.Name .. " | Args: " .. safeDump(args))
+                end)
+                
+                if name:find("train") or name:find("click") or name:find("treadmill") or name:find("speed") or firstArg:find("train") or firstArg:find("click") or firstArg:find("treadmill") or firstArg:find("speed") then
+                    _G.TrainRemote = self
+                    _G.TrainArgs = args
+                elseif name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
+                    _G.WinRemote = self
+                    _G.WinArgs = args
+                elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
+                    _G.RebirthRemote = self
+                    _G.RebirthArgs = args
+                end
+            end
+            return oldInvokeServer(self, ...)
+        end))
+        
+        successHook = true
+        print("[AJIZ SYSTEM] SME C-Level Remote Hooks Applied successfully!")
+    end)
+end
+
+if not successHook then
+    task.spawn(function()
+        local success, mt = pcall(function() return getrawmetatable(game) end)
+        if success and mt then
+            local oldNamecall = mt.__namecall
+            setreadonly(mt, false)
+            mt.__namecall = newcclosure(function(self, ...)
+                if not checkcaller() then
+                    local method = getnamecallmethod()
+                    local args = {...}
+                    if method == "FireServer" or method == "InvokeServer" then
+                        local name = string.lower(self.Name)
+                        local firstArg = tostring(args[1] or ""):lower()
+                        
+                        pcall(function()
+                            print("[AJIZ HOOK NAMECALL] Remote: " .. self.Name .. " | Args: " .. safeDump(args))
+                        end)
+                        
+                        if name:find("train") or name:find("click") or name:find("treadmill") or name:find("speed") or firstArg:find("train") or firstArg:find("click") or firstArg:find("treadmill") or firstArg:find("speed") then
+                            _G.TrainRemote = self
+                            _G.TrainArgs = args
+                        elseif name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
+                            _G.WinRemote = self
+                            _G.WinArgs = args
+                        elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
+                            _G.RebirthRemote = self
+                            _G.RebirthArgs = args
+                        end
+                    end
+                end
+                return oldNamecall(self, ...)
+            end)
+            setreadonly(mt, true)
+            print("[AJIZ SYSTEM] SME Metamethod Hook Applied successfully!")
+        end
+    end)
+end
+
+-- Flat Scanner Fallback (matches clear remote names)
+local function scanRemotes()
     for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
         if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
             local lname = string.lower(obj.Name)
             if (string.find(lname, "train") or string.find(lname, "treadmill") or string.find(lname, "speed") or string.find(lname, "click")) and not string.find(lname, "buy") and not string.find(lname, "shop") then
                 _G.TrainRemote = obj
+                print("[AJIZ SYSTEM] Auto-Detected Train Remote: " .. obj.Name)
             elseif (string.find(lname, "win") or string.find(lname, "finish") or string.find(lname, "obby") or string.find(lname, "gate")) and not string.find(lname, "buy") then
                 _G.WinRemote = obj
+                print("[AJIZ SYSTEM] Auto-Detected Win Remote: " .. obj.Name)
             elseif string.find(lname, "rebirth") or string.find(lname, "prestige") then
                 _G.RebirthRemote = obj
+                print("[AJIZ SYSTEM] Auto-Detected Rebirth Remote: " .. obj.Name)
             end
         end
     end
 end
-pcall(detectGameRemotes)
+pcall(scanRemotes)
 
--- Floating/Noclip Core for safe teleports
+-- ========================================================================
+-- 🏝️ PHYSICS & NO-CLIP PLATFORM CORE
+-- ========================================================================
+
 local FloatBody = nil
 local function EnableFloat(root)
     if not FloatBody or not FloatBody.Parent then
         FloatBody = Instance.new("BodyVelocity")
-        -- Randomized name to bypass simple detection checks
         FloatBody.Name = "AjizV_" .. tostring(math.random(100, 999))
         FloatBody.MaxForce = Vector3.new(1e6, 1e6, 1e6)
         FloatBody.Velocity = Vector3.zero
@@ -90,7 +210,6 @@ local function DisableFloat()
     end
 end
 
--- Continuous Noclip
 RunService.Stepped:Connect(function()
     if _G.AutoTrain or _G.AutoWin then
         pcall(function()
@@ -106,7 +225,7 @@ RunService.Stepped:Connect(function()
     end
 end)
 
--- Safe Teleport / Tween Handler
+-- Safe Teleport Handler
 local currentTween = nil
 local function SafeTeleport(targetCFrame)
     local char = LocalPlayer.Character
@@ -127,7 +246,6 @@ local function SafeTeleport(targetCFrame)
         return
     end
 
-    -- Linear Tween to target destination to prevent speed bans
     local speed = 250
     local tweenInfo = TweenInfo.new(dist / speed, Enum.EasingStyle.Linear)
     currentTween = TweenService:Create(root, tweenInfo, { CFrame = targetCFrame })
@@ -138,8 +256,27 @@ local function SafeTeleport(targetCFrame)
     end)
 end
 
--- Workspace Object Finder (Scans dynamically for Treadmills and Finish lines)
--- Enhanced with multi-level parent context searching (handles folder-grouped objects)
+-- Checkpoint Touch Trigger
+local function touchPart(part)
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root and part then
+        pcall(function()
+            if firetouchinterest then
+                firetouchinterest(part, root, 0)
+                task.wait(0.05)
+                firetouchinterest(part, root, 1)
+            else
+                SafeTeleport(part.CFrame * CFrame.new(0, 2, 0))
+            end
+        end)
+    end
+end
+
+-- ========================================================================
+-- 🔍 ENVIRONMENT DETECTOR UTILS
+-- ========================================================================
+
 local function findTreadmill()
     local target = nil
     pcall(function()
@@ -149,13 +286,11 @@ local function findTreadmill()
                 local parentName = obj.Parent and string.lower(obj.Parent.Name) or ""
                 local gParentName = obj.Parent and obj.Parent.Parent and string.lower(obj.Parent.Parent.Name) or ""
                 
-                -- Check if part or parent folder contain treadmill/train keywords
                 if lname:find("treadmill") or lname:find("train") or lname:find("run") or
                    parentName:find("treadmill") or parentName:find("train") or
                    gParentName:find("treadmill") or gParentName:find("train") then
                     
                     if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
-                        -- Prioritize interactive parts within models
                         if lname == "belt" or lname == "run" or lname == "platform" or lname == "pad" then
                             target = obj
                             break
@@ -170,10 +305,9 @@ local function findTreadmill()
     return target
 end
 
-local function findWinPart()
-    local target = nil
+local function getCheckpoints()
+    local list = {}
     pcall(function()
-        -- Scan checkpoint parts, checking up to 2 parent directories to support nested map structures
         for _, obj in ipairs(workspace:GetDescendants()) do
             if obj:IsA("BasePart") then
                 local lname = string.lower(obj.Name)
@@ -183,61 +317,83 @@ local function findWinPart()
                 if (lname:find("finish") or lname == "win" or lname:find("^win$") or lname:find("win_") or lname:find("winpad") or lname:find("winpart") or lname:find("endpart") or lname:find("checkpoint") or
                     parentName:find("win") or parentName:find("finish") or parentName:find("stage") or parentName:find("obby") or
                     gParentName:find("win") or gParentName:find("finish") or gParentName:find("stage") or gParentName:find("obby")) and not obj:IsDescendantOf(LocalPlayer.Character) then
-                    
-                    target = obj
-                    break
+                    table.insert(list, obj)
                 end
             end
         end
     end)
-    return target
+    
+    -- Sort checkpoints sequentially by index number or proximity
+    pcall(function()
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root then
+            table.sort(list, function(a, b)
+                local aNum = tonumber(a.Name:match("%d+"))
+                local bNum = tonumber(b.Name:match("%d+"))
+                if aNum and bNum then
+                    return aNum < bNum
+                end
+                return (a.Position - root.Position).Magnitude < (b.Position - root.Position).Magnitude
+            end)
+        end
+    end)
+    
+    return list
 end
 
--- Diagnostic Startup Logs
-pcall(function()
-    print("=== AJIZ HUB S.M.E. DIAGNOSTICS ===")
-    local t = findTreadmill()
-    local w = findWinPart()
-    print("Treadmill found: " .. (t and t:GetFullName() or "None"))
-    print("Win Part found: " .. (w and w:GetFullName() or "None"))
-    print("Train Remote detected: " .. (_G.TrainRemote and _G.TrainRemote:GetFullName() or "None"))
-    print("Win Remote detected: " .. (_G.WinRemote and _G.WinRemote:GetFullName() or "None"))
-    print("Rebirth Remote detected: " .. (_G.RebirthRemote and _G.RebirthRemote:GetFullName() or "None"))
-    print("===================================")
-end)
+local function equipTrainTool()
+    local char = LocalPlayer.Character
+    local humanoid = char and char:FindFirstChildWhichIsA("Humanoid")
+    if humanoid then
+        local equipped = char:FindFirstChildWhichIsA("Tool")
+        if equipped then
+            return equipped
+        end
+        for _, item in ipairs(LocalPlayer.Backpack:GetChildren()) do
+            if item:IsA("Tool") then
+                humanoid:EquipTool(item)
+                return item
+            end
+        end
+    end
+    return nil
+end
 
 -- ========================================================================
--- 🏝️ AUTOMATION BACKGROUND WORKERS
+-- ⚡ AUTOMATION BACKGROUND WORKERS
 -- ========================================================================
 
--- 1. Auto Training Worker
+-- 1. Auto Train Worker
 task.spawn(function()
     while true do
-        task.wait(0.5) -- Safe rate-limit cooldown
+        task.wait(0.1)
         if _G.AutoTrain then
             pcall(function()
-                -- If Train Remote exists, fire it directly
+                -- Direct remote fire
                 if _G.TrainRemote then
-                    _G.TrainRemote:FireServer()
-                else
-                    -- Fallback: Teleport onto a treadmill and simulate walking/running
-                    local treadmill = findTreadmill()
-                    local char = LocalPlayer.Character
-                    local root = char and char:FindFirstChild("HumanoidRootPart")
-                    if treadmill and root then
-                        -- Only teleport if player has walked off the treadmill to prevent physics resetting
-                        local dist = (root.Position - treadmill.Position).Magnitude
-                        if dist > 8 then
-                            root.CFrame = treadmill.CFrame * CFrame.new(0, 3.5, 0)
-                        end
-                        
-                        -- Simulate walking movement inputs to trigger treadmill speed detection
-                        local hum = char:FindFirstChildOfClass("Humanoid")
-                        if hum then
-                            hum:Move(Vector3.new(0, 0, -1), true)
-                        end
-                    else
-                        warn("[AJIZ HUB] Auto-Train enabled but no Treadmill found in workspace.")
+                    _G.TrainRemote:FireServer(unpack(_G.TrainArgs or {}))
+                end
+                
+                -- Equip and activate tool
+                local tool = equipTrainTool()
+                if tool then
+                    tool:Activate()
+                end
+                
+                -- Treadmill physics walking simulation
+                local treadmill = findTreadmill()
+                local char = LocalPlayer.Character
+                local root = char and char:FindFirstChild("HumanoidRootPart")
+                if treadmill and root then
+                    local dist = (root.Position - treadmill.Position).Magnitude
+                    if dist > 8 then
+                        root.CFrame = treadmill.CFrame * CFrame.new(0, 3.5, 0)
+                    end
+                    
+                    local hum = char:FindFirstChildOfClass("Humanoid")
+                    if hum then
+                        hum:Move(Vector3.new(0, 0, -1), true)
                     end
                 end
             end)
@@ -245,20 +401,24 @@ task.spawn(function()
     end
 end)
 
--- 2. Auto Win / Obby Finisher Worker
+-- 2. Auto Win Worker
 task.spawn(function()
     while true do
-        task.wait(1.5) -- Anti-kick delay limit
+        task.wait(1.5)
         if _G.AutoWin then
             pcall(function()
                 if _G.WinRemote then
-                    _G.WinRemote:FireServer()
+                    _G.WinRemote:FireServer(unpack(_G.WinArgs or {}))
                 else
-                    local winPart = findWinPart()
-                    if winPart then
-                        SafeTeleport(winPart.CFrame * CFrame.new(0, 2, 0))
+                    local checkpoints = getCheckpoints()
+                    if #checkpoints > 0 then
+                        for _, cp in ipairs(checkpoints) do
+                            if not _G.AutoWin then break end
+                            touchPart(cp)
+                            task.wait(0.25)
+                        end
                     else
-                        warn("[AJIZ HUB] Auto-Win enabled but no Win/Finish Part found in workspace.")
+                        warn("[AJIZ HUB] Auto-Win enabled but no obby/checkpoint pads found in workspace.")
                     end
                 end
             end)
@@ -269,17 +429,54 @@ end)
 -- 3. Auto Rebirth Worker
 task.spawn(function()
     while true do
-        task.wait(3) -- Rebirth check interval
+        task.wait(2.5)
         if _G.AutoRebirth then
             pcall(function()
                 if _G.RebirthRemote then
-                    _G.RebirthRemote:FireServer()
-                else
-                    warn("[AJIZ HUB] Auto-Rebirth enabled but no Rebirth Remote found.")
+                    _G.RebirthRemote:FireServer(unpack(_G.RebirthArgs or {}))
                 end
             end)
         end
     end
+end)
+
+-- WalkSpeed Auto Sync
+task.spawn(function()
+    while true do
+        task.wait(1)
+        if _G.SpeedBoost then
+            pcall(function()
+                local char = LocalPlayer.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hum.WalkSpeed = 100
+                end
+            end)
+        end
+    end
+end)
+
+-- Infinite Jump
+UserInputService.JumpRequest:Connect(function()
+    if _G.InfJump then
+        pcall(function()
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum:ChangeState(Enum.HumanoidStateType.Jumping)
+            end
+        end)
+    end
+end)
+
+-- Anti-AFK
+pcall(function()
+    LocalPlayer.Idled:Connect(function()
+        pcall(function()
+            VirtualUser:CaptureController()
+            VirtualUser:ClickButton2(Vector2.new(0, 0))
+        end)
+    end)
 end)
 
 -- ========================================================================
@@ -1147,12 +1344,7 @@ local Panel = AjizLib:CreateWindow({
 Panel:AddToggle("Auto Train Speed", false, function(state)
     _G.AutoTrain = state
     if state then
-        local t = findTreadmill()
-        if not t and not _G.TrainRemote then
-            Notify("Ajiz Hub", "No Treadmill or Train Remote found! Run/stand near a treadmill or check developer console.", 5)
-        else
-            Notify("Ajiz Hub", "Auto-Train Activated!", 2)
-        end
+        Notify("Ajiz Hub", "Auto-Train Active! Manual clicks capture remotes.", 4)
     else
         pcall(DisableFloat)
     end
@@ -1161,12 +1353,7 @@ end)
 Panel:AddToggle("Auto Win (Obby)", false, function(state)
     _G.AutoWin = state
     if state then
-        local w = findWinPart()
-        if not w and not _G.WinRemote then
-            Notify("Ajiz Hub", "No Finish Line / Win Pad detected! Check developer console.", 5)
-        else
-            Notify("Ajiz Hub", "Auto-Win Activated!", 2)
-        end
+        Notify("Ajiz Hub", "Auto-Win Active! Traversing checkpoints safely.", 3)
     else
         pcall(DisableFloat)
         if currentTween then
@@ -1179,12 +1366,21 @@ end)
 Panel:AddToggle("Auto Rebirth", false, function(state)
     _G.AutoRebirth = state
     if state then
-        if not _G.RebirthRemote then
-            Notify("Ajiz Hub", "No Rebirth Remote detected. Auto-Rebirth might not work in this game.", 5)
-        else
-            Notify("Ajiz Hub", "Auto-Rebirth Activated!", 2)
-        end
+        Notify("Ajiz Hub", "Auto-Rebirth Active! Please rebirth manually once to capture remote.", 4)
     end
 end)
 
-AjizLib:Notify("Ajiz Hub", "Speed Monkey Escape Script Loaded!", 3)
+Panel:AddToggle("Speed Boost (Max)", false, function(state)
+    _G.SpeedBoost = state
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if hum then
+        hum.WalkSpeed = state and 100 or 16
+    end
+end)
+
+Panel:AddToggle("Infinite Jump", false, function(state)
+    _G.InfJump = state
+end)
+
+AjizLib:Notify("Ajiz Hub", "Speed Monkey Escape Script Upgraded!", 3)
