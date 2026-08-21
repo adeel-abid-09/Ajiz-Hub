@@ -134,6 +134,7 @@ local success, fatalErr = pcall(function()
                     elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
                         _G.RebirthRemote = self
                         _G.RebirthArgs = args
+                        Notify("Ajiz Hub", "Captured Rebirth Remote: " .. self.Name, 4)
                     end
                 end
                 return oldFireServer(self, ...)
@@ -159,6 +160,7 @@ local success, fatalErr = pcall(function()
                     elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
                         _G.RebirthRemote = self
                         _G.RebirthArgs = args
+                        Notify("Ajiz Hub", "Captured Rebirth Remote: " .. self.Name, 4)
                     end
                 end
                 return oldInvokeServer(self, ...)
@@ -196,6 +198,7 @@ local success, fatalErr = pcall(function()
                             elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
                                 _G.RebirthRemote = self
                                 _G.RebirthArgs = args
+                                Notify("Ajiz Hub", "Captured Rebirth Remote: " .. self.Name, 4)
                             end
                         end
                     end
@@ -207,27 +210,43 @@ local success, fatalErr = pcall(function()
         end)
     end
 
-    -- Wildcard auto-detect for Progression & Farming remotes
+    -- Wildcard auto-detect for Progression & Farming remotes (Deep game-wide descendant scanner)
     local function autoDetectNetworkRemotes()
         pcall(function()
+            -- 1. Scan ReplicatedStorage first
             for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
                 if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
                     local lname = string.lower(obj.Name)
-                    -- 1. Detect Rebirth Remote
+                    -- Rebirth Remote
                     if not _G.RebirthRemote and (lname:find("rebirth") or lname:find("prestige")) then
                         _G.RebirthRemote = obj
                         _G.RebirthArgs = {}
-                        print("[AJIZ SYSTEM] Auto-Detected Rebirth Remote: " .. obj.GetFullName())
-                    -- 2. Detect Train/Click Remote
+                        print("[AJIZ SYSTEM] Auto-Detected Rebirth Remote: " .. obj:GetFullName())
+                    -- Train/Click Remote
                     elseif not _G.TrainRemote and (lname:find("train") or lname:find("click") or lname:find("speed") or lname:find("tap") or lname:find("farm")) then
                         _G.TrainRemote = obj
                         _G.TrainArgs = {}
-                        print("[AJIZ SYSTEM] Auto-Detected Train Remote: " .. obj.GetFullName())
-                    -- 3. Detect Win Remote
+                        print("[AJIZ SYSTEM] Auto-Detected Train Remote: " .. obj:GetFullName())
+                    -- Win Remote
                     elseif not _G.WinRemote and (lname:find("win") or lname:find("finish") or lname:find("claimwin")) then
                         _G.WinRemote = obj
                         _G.WinArgs = {}
-                        print("[AJIZ SYSTEM] Auto-Detected Win Remote: " .. obj.GetFullName())
+                        print("[AJIZ SYSTEM] Auto-Detected Win Remote: " .. obj:GetFullName())
+                    end
+                end
+            end
+            
+            -- 2. Scan entire game descendants if rebirth remote was not resolved (Developer custom storage bypass)
+            if not _G.RebirthRemote then
+                for _, obj in ipairs(game:GetDescendants()) do
+                    if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                        local lname = string.lower(obj.Name)
+                        if lname:find("rebirth") or lname:find("prestige") then
+                            _G.RebirthRemote = obj
+                            _G.RebirthArgs = {}
+                            print("[AJIZ SYSTEM] Deep Auto-Detected Rebirth Remote: " .. obj:GetFullName())
+                            break
+                        end
                     end
                 end
             end
@@ -687,6 +706,35 @@ local success, fatalErr = pcall(function()
     end
 
     -- ========================================================================
+    -- ⚡ SPEED BOOST METAMETHOD PROPERTY BYPASS & LOCK ENGINE
+    -- ========================================================================
+    local humConn = nil
+    local function bindSpeed(char)
+        local hum = char:WaitForChild("Humanoid", 5) or char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            if humConn then pcall(function() humConn:Disconnect() end) end
+            pcall(function()
+                if _G.SpeedBoost then
+                    -- Lock speed to 500 (supersonic bypass of game's 59 cap)
+                    hum.WalkSpeed = 500
+                end
+                humConn = hum:GetPropertyChangedSignal("WalkSpeed"):Connect(function()
+                    if _G.SpeedBoost and hum.WalkSpeed ~= 500 then
+                        hum.WalkSpeed = 500
+                    end
+                end)
+            end)
+        end
+    end
+
+    LocalPlayer.CharacterAdded:Connect(function(char)
+        bindSpeed(char)
+    end)
+    if LocalPlayer.Character then
+        bindSpeed(LocalPlayer.Character)
+    end
+
+    -- ========================================================================
     -- ⚡ AUTOMATION BACKGROUND WORKERS
     -- ========================================================================
 
@@ -789,19 +837,6 @@ local success, fatalErr = pcall(function()
                     end
                 end)
             end
-        end
-    end)
-
-    -- WalkSpeed Auto Sync (High Frequency RenderStepped loop to override local scripts)
-    RunService.RenderStepped:Connect(function()
-        if _G.SpeedBoost then
-            pcall(function()
-                local char = LocalPlayer.Character
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    hum.WalkSpeed = 100
-                end
-            end)
         end
     end)
 
@@ -1718,9 +1753,8 @@ end)()
     Panel:AddToggle("Speed Boost (Max)", false, function(state)
         _G.SpeedBoost = state
         local char = LocalPlayer.Character
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
-        if hum then
-            hum.WalkSpeed = state and 100 or 16
+        if char then
+            bindSpeed(char)
         end
     end)
 
