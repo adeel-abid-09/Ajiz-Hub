@@ -38,7 +38,7 @@ _G.AutoBuySabers = false
 _G.AutoBuyDNA = false
 _G.AutoRebirth = false
 
--- Dynamic Remotes Resolver (Prevents folder/path discrepancies with search throttling)
+-- Dynamic Remotes Resolver (Recursive Descendant Scan for 100% path accuracy)
 local lastSearchTime = 0
 local CachedEventsFolder = nil
 local function getEventsFolder()
@@ -46,29 +46,29 @@ local function getEventsFolder()
     
     local now = os.clock()
     if now - lastSearchTime < 3 then
-        return nil -- Rate limit scans to once every 3 seconds to avoid CPU overload
+        return nil -- Rate limit scans
     end
     lastSearchTime = now
     
-    -- Try direct matches
-    local folder = ReplicatedStorage:FindFirstChild("Events") or 
-                   ReplicatedStorage:FindFirstChild("RemoteEvents") or 
-                   ReplicatedStorage:FindFirstChild("events") or
-                   ReplicatedStorage:FindFirstChild("remotes")
-                   
-    if not folder then
-        -- Fallback: Check if Clicked event is directly in ReplicatedStorage
-        if ReplicatedStorage:FindFirstChild("Clicked") or ReplicatedStorage:FindFirstChild("clicked") then
-            folder = ReplicatedStorage
-        else
-            -- Search recursively for any folder containing Clicked
-            for _, child in ipairs(ReplicatedStorage:GetChildren()) do
-                if child:IsA("Folder") and (child:FindFirstChild("Clicked") or child:FindFirstChild("clicked")) then
-                    folder = child
+    local folder = nil
+    -- Scan ReplicatedStorage recursively to locate the exact parent folder of Clicked remote
+    pcall(function()
+        for _, child in ipairs(ReplicatedStorage:GetDescendants()) do
+            if child:IsA("RemoteEvent") or child:IsA("RemoteFunction") then
+                local lname = child.Name:lower()
+                if lname == "clicked" or lname == "click" or lname == "swing" then
+                    folder = child.Parent
                     break
                 end
             end
         end
+    end)
+    
+    -- Fallback to standard folders
+    if not folder then
+        folder = ReplicatedStorage:FindFirstChild("Events") or 
+                 ReplicatedStorage:FindFirstChild("RemoteEvents") or 
+                 ReplicatedStorage:FindFirstChild("events")
     end
     
     CachedEventsFolder = folder
@@ -81,7 +81,7 @@ local function getRemote(name)
     
     local remote = folder:FindFirstChild(name)
     if not remote then
-        -- Case insensitive check
+        -- Case insensitive checks
         local lname = name:lower()
         for _, child in ipairs(folder:GetChildren()) do
             if (child:IsA("RemoteEvent") or child:IsA("RemoteFunction")) and child.Name:lower():find(lname) then
@@ -109,6 +109,24 @@ local function equipSaber()
     end
     return nil
 end
+
+-- ReplicatedStorage Remote Dumper
+local function dumpSaberRemotes()
+    pcall(function()
+        if writefile then
+            local lines = {}
+            table.insert(lines, "=== AJIZ SABER SIMULATOR REMOTE DUMP ===")
+            for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+                if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                    table.insert(lines, obj:GetFullName() .. " (" .. obj.ClassName .. ")")
+                end
+            end
+            writefile("ajiz_saber_dump.txt", table.concat(lines, "\n"))
+            print("[AJIZ SYSTEM] Saber Simulator remotes successfully dumped to 'ajiz_saber_dump.txt'!")
+        end
+    end)
+end
+pcall(dumpSaberRemotes)
 
 -- Diagnostic Tool for Saber Simulator Remotes
 pcall(function()
@@ -495,7 +513,7 @@ function AjizLib:CreateWindow(config)
     MainFrame.Position = UDim2.new(0.5, -120, 0.4, -60)
     MainFrame.BackgroundColor3 = Theme.Background
     MainFrame.BorderSizePixel = 0
-    MainFrame.ClipsDescendants = false
+    MainFrame.ClipsDescendants = true
     MainFrame.Parent = ScreenGui
     Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
 

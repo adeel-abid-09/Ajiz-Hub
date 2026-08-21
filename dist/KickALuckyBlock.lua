@@ -767,7 +767,7 @@ function AjizLib:CreateWindow(config)
     MainFrame.Position = UDim2.new(0.5, -120, 0.4, -60)
     MainFrame.BackgroundColor3 = Theme.Background
     MainFrame.BorderSizePixel = 0
-    MainFrame.ClipsDescendants = false
+    MainFrame.ClipsDescendants = true
     MainFrame.Parent = ScreenGui
     Instance.new("UICorner", MainFrame).CornerRadius = UDim.new(0, 8)
 
