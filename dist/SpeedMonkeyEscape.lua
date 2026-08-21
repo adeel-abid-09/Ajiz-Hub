@@ -222,25 +222,20 @@ if not successHook then
     end)
 end
 
--- Flat Scanner Fallback (matches clear remote names)
-local function scanRemotes()
+-- Rebirth Remote Auto-Detection (Strict check to prevent tutorial remote mismatch)
+local function scanRebirthRemote()
     for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
         if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
             local lname = string.lower(obj.Name)
-            if (string.find(lname, "train") or string.find(lname, "treadmill") or string.find(lname, "speed") or string.find(lname, "click")) and not string.find(lname, "buy") and not string.find(lname, "shop") then
-                _G.TrainRemote = obj
-                print("[AJIZ SYSTEM] Auto-Detected Train Remote: " .. obj.Name)
-            elseif (string.find(lname, "win") or string.find(lname, "finish") or string.find(lname, "obby") or string.find(lname, "gate")) and not string.find(lname, "buy") then
-                _G.WinRemote = obj
-                print("[AJIZ SYSTEM] Auto-Detected Win Remote: " .. obj.Name)
-            elseif string.find(lname, "rebirth") or string.find(lname, "prestige") then
+            if lname == "rebirth" then
                 _G.RebirthRemote = obj
-                print("[AJIZ SYSTEM] Auto-Detected Rebirth Remote: " .. obj.Name)
+                print("[AJIZ SYSTEM] Strict Auto-Detected Rebirth Remote: " .. obj.Name)
+                break
             end
         end
     end
 end
-pcall(scanRemotes)
+pcall(scanRebirthRemote)
 
 -- ========================================================================
 -- 🏝️ PHYSICS & NO-CLIP PLATFORM CORE
@@ -464,9 +459,9 @@ task.spawn(function()
         task.wait(0.1)
         if _G.AutoTrain then
             pcall(function()
-                -- Direct remote fire if captured
-                if _G.TrainRemote then
-                    _G.TrainRemote:FireServer(unpack(_G.TrainArgs or {}))
+                -- Direct remote fire only if dynamic arguments are captured (guarantees correct remote)
+                if _G.TrainRemote and _G.TrainArgs then
+                    _G.TrainRemote:FireServer(unpack(_G.TrainArgs))
                 else
                     -- Fallback: Equip and activate tool
                     local tool = equipTrainTool()
@@ -503,8 +498,9 @@ task.spawn(function()
         task.wait(1.5)
         if _G.AutoWin then
             pcall(function()
-                if _G.WinRemote then
-                    _G.WinRemote:FireServer(unpack(_G.WinArgs or {}))
+                -- Direct remote win only if dynamic arguments are captured
+                if _G.WinRemote and _G.WinArgs then
+                    _G.WinRemote:FireServer(unpack(_G.WinArgs))
                 else
                     local checkpoints = getCheckpoints()
                     if #checkpoints > 0 then
@@ -519,7 +515,7 @@ task.spawn(function()
                             end
                         end
                     else
-                        warn("[AJIZ HUB] Auto-Win enabled but no obby/checkpoint pads found in workspace.")
+                        warn("[AJIZ HUB] Auto-Win enabled but no obby/checkpoint pads found.")
                     end
                 end
             end)
@@ -541,19 +537,16 @@ task.spawn(function()
     end
 end)
 
--- WalkSpeed Auto Sync
-task.spawn(function()
-    while true do
-        task.wait(1)
-        if _G.SpeedBoost then
-            pcall(function()
-                local char = LocalPlayer.Character
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    hum.WalkSpeed = 100
-                end
-            end)
-        end
+-- WalkSpeed Auto Sync (High Frequency RenderStepped loop to override local scripts)
+RunService.RenderStepped:Connect(function()
+    if _G.SpeedBoost then
+        pcall(function()
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.WalkSpeed = 100
+            end
+        end)
     end
 end)
 
