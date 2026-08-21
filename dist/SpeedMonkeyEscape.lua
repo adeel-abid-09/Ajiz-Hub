@@ -34,7 +34,6 @@ local success, fatalErr = pcall(function()
     end
 
     -- Global States
-    _G.AutoTrain = false
     _G.AutoWin = false
     _G.AutoRebirth = false
     _G.SpeedBoost = false
@@ -43,16 +42,12 @@ local success, fatalErr = pcall(function()
     local highestStageReached = 1
     local diedAtPosition = nil
 
-    _G.TrainRemote = nil
-    _G.TrainArgs = nil
     _G.WinRemote = nil
     _G.WinArgs = nil
     _G.RebirthRemote = nil
     _G.RebirthArgs = nil
 
     -- Caching variables to prevent game freezes
-    local CachedTreadmills = {}
-    local CachedBestTreadmill = nil
     local CachedWinPad = nil
     local CachedSpawnCF = nil
 
@@ -128,10 +123,7 @@ local success, fatalErr = pcall(function()
                         print("[AJIZ HOOK FIRE] Remote: " .. self.Name .. " | Args: " .. safeDump(args))
                     end)
                     
-                    if name:find("train") or name:find("click") or name:find("treadmill") or name:find("speed") or firstArg:find("train") or firstArg:find("click") or firstArg:find("treadmill") or firstArg:find("speed") then
-                        _G.TrainRemote = self
-                        _G.TrainArgs = args
-                    elseif name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
+                    if name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
                         _G.WinRemote = self
                         _G.WinArgs = args
                     elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
@@ -154,10 +146,7 @@ local success, fatalErr = pcall(function()
                         print("[AJIZ HOOK INVOKE] Remote: " .. self.Name .. " | Args: " .. safeDump(args))
                     end)
                     
-                    if name:find("train") or name:find("click") or name:find("treadmill") or name:find("speed") or firstArg:find("train") or firstArg:find("click") or firstArg:find("treadmill") or firstArg:find("speed") then
-                        _G.TrainRemote = self
-                        _G.TrainArgs = args
-                    elseif name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
+                    if name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
                         _G.WinRemote = self
                         _G.WinArgs = args
                     elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
@@ -192,10 +181,7 @@ local success, fatalErr = pcall(function()
                                 print("[AJIZ HOOK NAMECALL] Remote: " .. self.Name .. " | Args: " .. safeDump(args))
                             end)
                             
-                            if name:find("train") or name:find("click") or name:find("treadmill") or name:find("speed") or firstArg:find("train") or firstArg:find("click") or firstArg:find("treadmill") or firstArg:find("speed") then
-                                _G.TrainRemote = self
-                                _G.TrainArgs = args
-                            elseif name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
+                            if name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
                                 _G.WinRemote = self
                                 _G.WinArgs = args
                             elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
@@ -225,11 +211,6 @@ local success, fatalErr = pcall(function()
                         _G.RebirthRemote = obj
                         _G.RebirthArgs = {}
                         print("[AJIZ SYSTEM] Auto-Detected Rebirth Remote: " .. obj:GetFullName())
-                    -- Train/Click Remote
-                    elseif not _G.TrainRemote and (lname:find("train") or lname:find("click") or lname:find("speed") or lname:find("tap") or lname:find("farm")) then
-                        _G.TrainRemote = obj
-                        _G.TrainArgs = {}
-                        print("[AJIZ SYSTEM] Auto-Detected Train Remote: " .. obj:GetFullName())
                     -- Win Remote
                     elseif not _G.WinRemote and (lname:find("win") or lname:find("finish") or lname:find("claimwin")) then
                         _G.WinRemote = obj
@@ -353,7 +334,7 @@ local success, fatalErr = pcall(function()
         return successMove
     end
 
-    -- Trigger Proximity Prompt inside treadmill
+    -- Trigger Proximity Prompt helper
     local function triggerPrompt(parent)
         local prompt = parent:FindFirstChildOfClass("ProximityPrompt") or parent.Parent:FindFirstChildOfClass("ProximityPrompt")
         if not prompt then
@@ -403,94 +384,9 @@ local success, fatalErr = pcall(function()
         return tonumber(stage) or 1
     end
 
-    -- Detect player's total Wins from leaderstats
-    local function getPlayerWins()
-        local wins = 0
-        pcall(function()
-            local stats = LocalPlayer:FindFirstChild("leaderstats")
-            if stats then
-                local winsVal = stats:FindFirstChild("Wins") or stats:FindFirstChild("Win")
-                if winsVal then
-                    wins = winsVal.Value
-                end
-            end
-        end)
-        return tonumber(wins) or 0
-    end
-
     -- Dynamic parser to extract numerical reward values from BillboardGuis / part text labels
     local function getWinValue(part)
         local val = 0
-        pcall(function()
-            local num = tonumber(part.Name:match("%d+"))
-            if num then 
-                val = num 
-            end
-            
-            for _, child in ipairs(part:GetDescendants()) do
-                if child:IsA("TextLabel") or child.ClassName:find("Text") then
-                    local text = child.Text
-                    if text then
-                        local matchNum = tonumber(text:gsub("%D+", ""))
-                        if matchNum then
-                            val = math.max(val, matchNum)
-                        end
-                    end
-                end
-            end
-            
-            if part.Parent then
-                for _, child in ipairs(part.Parent:GetDescendants()) do
-                    if child:IsA("TextLabel") or child.ClassName:find("Text") then
-                        local text = child.Text
-                        if text then
-                            local matchNum = tonumber(text:gsub("%D+", ""))
-                            if matchNum then
-                                val = math.max(val, matchNum)
-                            end
-                        end
-                    end
-                end
-            end
-        end)
-        return val
-    end
-
-    -- Extract level requirement from treadmill name or labels
-    local function getTreadmillRequiredLevel(part)
-        local req = 0
-        pcall(function()
-            local function check(text)
-                local t = string.lower(text)
-                if t:find("level") or t:find("req") or t:find("lvl") or t:find("win") then
-                    local num = tonumber(t:match("%d+"))
-                    if num then
-                        req = math.max(req, num)
-                    end
-                end
-            end
-            
-            check(part.Name)
-            for _, child in ipairs(part:GetDescendants()) do
-                if child:IsA("TextLabel") or child.ClassName:find("Text") then
-                    if child.Text then check(child.Text) end
-                end
-            end
-            if part.Parent then
-                check(part.Parent.Name)
-                for _, child in ipairs(part.Parent:GetDescendants()) do
-                    if child:IsA("TextLabel") or child.ClassName:find("Text") then
-                        if child.Text then check(child.Text) end
-                    end
-                end
-            end
-        end)
-        return req
-    end
-
-    -- Extract multiplier speed value from treadmill name or labels
-    local function getTreadmillValue(part)
-        local val = 1
         pcall(function()
             local num = tonumber(part.Name:match("%d+"))
             if num then 
@@ -647,87 +543,15 @@ local success, fatalErr = pcall(function()
         return targetPart
     end
 
-    -- Filter all cached treadmills to locate the best unlocked machine (based on either level or total wins)
-    local function getBestTreadmill()
-        local playerLvl = getCurrentStage()
-        local playerWins = getPlayerWins()
-        local bestTreadmill = nil
-        local maxVal = -1
-        
-        for _, t in ipairs(CachedTreadmills) do
-            local req = getTreadmillRequiredLevel(t)
-            if playerLvl >= req or playerWins >= req then
-                local val = getTreadmillValue(t)
-                if val > maxVal then
-                    maxVal = val
-                    bestTreadmill = t
-                end
-            end
-        end
-        
-        return bestTreadmill
-    end
-
-    -- Background dynamic caching loop (Re-caches every 5 seconds to load newly streamed-in parts)
-    local function cacheWorkspaceObjects()
-        local treadmills = {}
-        pcall(function()
-            for _, obj in ipairs(Workspace:GetDescendants()) do
-                if obj:IsA("BasePart") then
-                    -- Scan Treadmills (Flexible search to find all real treadmills across all worlds/stages)
-                    local lname = string.lower(obj.Name)
-                    local isTreadmillPart = lname:find("treadmill") or lname:find("belt") or lname:find("platform")
-                    
-                    if isTreadmillPart then
-                        if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
-                            -- Include primary parts containing proximity prompts or matching base designations
-                            if obj:FindFirstChildOfClass("ProximityPrompt") or lname == "belt" or lname == "treadmill" or lname:find("treadmill") then
-                                table.insert(treadmills, obj)
-                            end
-                        end
-                    end
-                end
-            end
-        end)
-        CachedTreadmills = treadmills
-        print("[AJIZ SYSTEM] Cached " .. #treadmills .. " treadmills.")
-        
-        -- Resolve and cache the best training machine matching the player's level/wins
-        pcall(function()
-            CachedBestTreadmill = getBestTreadmill()
-        end)
-        
-        -- Auto Win loops cache update
-        if _G.AutoWin then
-            updateWinCaching()
-        end
-    end
-
-    -- Spawn background caching loop
+    -- Background dynamic Win Pad caching (Re-caches every 5 seconds)
     task.spawn(function()
         while true do
-            pcall(cacheWorkspaceObjects)
-            task.wait(5) -- Re-scans every 5 seconds (Extremely lightweight, 60 FPS stable)
+            if _G.AutoWin then
+                pcall(updateWinCaching)
+            end
+            task.wait(5)
         end
     end)
-
-    local function equipTrainTool()
-        local char = LocalPlayer.Character
-        local humanoid = char and char:FindFirstChildWhichIsA("Humanoid")
-        if humanoid then
-            local equipped = char:FindFirstChildWhichIsA("Tool")
-            if equipped then
-                return equipped
-            end
-            for _, item in ipairs(LocalPlayer.Backpack:GetChildren()) do
-                if item:IsA("Tool") then
-                    humanoid:EquipTool(item)
-                    return item
-                end
-            end
-        end
-        return nil
-    end
 
     -- ========================================================================
     -- ⚡ SPEED BOOST METAMETHOD PROPERTY BYPASS & LOCK ENGINE
@@ -883,61 +707,7 @@ local success, fatalErr = pcall(function()
     -- ⚡ AUTOMATION BACKGROUND WORKERS
     -- ========================================================================
 
-    -- 1. Clicker / Remote Firer loop (Supersonic Clicking Thread running up to 200 clicks/sec)
-    task.spawn(function()
-        while true do
-            task.wait(0.005) -- Max speed training clicks!
-            if _G.AutoTrain then
-                pcall(function()
-                    if _G.TrainRemote and _G.TrainArgs then
-                        _G.TrainRemote:FireServer(unpack(_G.TrainArgs))
-                    else
-                        -- Simulating screen click using VirtualUser (Fires manual click local scripts to capture Remote)
-                        pcall(function()
-                            VirtualUser:Button1Down(Vector2.new(0, 0))
-                            task.wait(0.01)
-                            VirtualUser:Button1Up(Vector2.new(0, 0))
-                        end)
-                        
-                        -- Tool activation fallback (if tool exists)
-                        local tool = equipTrainTool()
-                        if tool then
-                            tool:Activate()
-                        end
-                    end
-                end)
-            end
-        end
-    end)
-
-    local isTeleporting = false
-    -- 2. Treadmill Teleport / Proximity Prompt Keep-Alive loop (Slow 1.5s verification thread to prevent jumping/teleport loops)
-    task.spawn(function()
-        while true do
-            task.wait(1.5) -- Slow verification loop
-            if _G.AutoTrain and not isTeleporting then
-                pcall(function()
-                    local treadmill = CachedBestTreadmill or CachedTreadmills[1]
-                    local char = LocalPlayer.Character
-                    local root = char and char:FindFirstChild("HumanoidRootPart")
-                    if treadmill and root then
-                        local dist = (root.Position - treadmill.Position).Magnitude
-                        if dist > 15 then
-                            isTeleporting = true
-                            -- Instant teleport onto the treadmill surface (Height 1.5 studs) to avoid server resets
-                            root.CFrame = treadmill.CFrame * CFrame.new(0, 1.5, 0)
-                            task.wait(0.1)
-                            triggerPrompt(treadmill) -- Trigger proximity prompt inside machine
-                            task.wait(0.3) -- Cooldown to let character settle
-                            isTeleporting = false
-                        end
-                    end
-                end)
-            end
-        end
-    end)
-
-    -- 3. Auto Win Worker (Forced loop: Teleports to Win Pad, then instantly forces back to Lobby Spawn pad)
+    -- 1. Auto Win Worker (Forced loop: Teleports to Win Pad, then instantly forces back to Lobby Spawn pad)
     task.spawn(function()
         while true do
             task.wait(0.05)
@@ -955,7 +725,7 @@ local success, fatalErr = pcall(function()
                         root.CFrame = CachedWinPad.CFrame * CFrame.new(0, 2, 0)
                         task.wait(0.25) -- Cooldown to guarantee touch registers on server
                         
-                        -- 2. Force-teleport player back to Lobby Spawn pad (Prevents training machines auto-teleport)
+                        -- 2. Force-teleport player back to Lobby Spawn pad
                         root.CFrame = CachedSpawnCF * CFrame.new(0, 3, 0)
                         task.wait(0.25) -- Cooldown before next win iteration
                     end
@@ -964,7 +734,7 @@ local success, fatalErr = pcall(function()
         end
     end)
 
-    -- 4. Auto Rebirth Worker (Dynamic trigger with parameters fallback support)
+    -- 2. Auto Rebirth Worker (Dynamic trigger with parameters fallback support)
     task.spawn(function()
         while true do
             task.wait(2.5)
@@ -985,7 +755,7 @@ local success, fatalErr = pcall(function()
         end
     end)
 
-    -- 5. Infinite Jump Holding Fly Worker
+    -- 3. Infinite Jump Holding Fly Worker
     task.spawn(function()
         while true do
             task.wait(0.04) -- Ultra-fast responsive flight checks (25 checks/sec)
@@ -1000,6 +770,16 @@ local success, fatalErr = pcall(function()
                 end)
             end
         end
+    end)
+
+    -- Anti-AFK
+    pcall(function()
+        LocalPlayer.Idled:Connect(function()
+            pcall(function()
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton2(Vector2.new(0, 0))
+            end)
+        end)
     end)
 
     -- ========================================================================
@@ -1863,15 +1643,6 @@ end)()
         GameName = "Monkey Escape",
         Footer = "Ajiz Hub"
     })
-
-    Panel:AddToggle("Auto Train Speed", false, function(state)
-        _G.AutoTrain = state
-        if state then
-            Notify("Ajiz Hub", "Auto-Train Active! Check dev log if remotes hook.", 4)
-        else
-            pcall(DisableFloat)
-        end
-    end)
 
     Panel:AddToggle("Auto Win (Infinite)", false, function(state)
         _G.AutoWin = state
