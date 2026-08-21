@@ -278,7 +278,7 @@ RunService.Stepped:Connect(function()
     end
 end)
 
--- Robust Manual CFrame Lerp (With 4s Fail-Safe Timeout to prevent hangs)
+-- Robust CFrame Lerp (With 4s Fail-Safe Timeout to prevent hangs)
 local function moveToCF(targetCF, speed)
     speed = speed or 250
     local char = LocalPlayer.Character
@@ -381,23 +381,27 @@ local function triggerPrompt(parent)
 end
 
 -- ========================================================================
--- 🔍 ENVIRONMENT DETECTOR UTILS & STATIC CACHING (LAG REDUCTION)
+-- 🔍 ENVIRONMENT DETECTOR UTILS & DYNAMIC CACHING (StreamingEnabled Support)
 -- ========================================================================
 
 local function isCheckpoint(part)
     local lname = string.lower(part.Name)
-    local hasTrigger = part:FindFirstChildOfClass("TouchTransmitter") ~= nil
+    local pname = part.Parent and string.lower(part.Parent.Name) or ""
+    local gpname = part.Parent and part.Parent.Parent and string.lower(part.Parent.Parent.Name) or ""
+    
+    -- StreamingEnabled fallback: verify parent container keywords
+    local isInCheckpointFolder = pname:find("checkpoint") or pname:find("stage") or pname:find("obby") or gpname:find("checkpoint") or gpname:find("stage")
     
     if lname:find("checkpoint") or lname:find("win") or lname:find("finish") or lname:find("pad") then
         return true
     end
-    if hasTrigger and (lname:find("part") or tonumber(lname:match("^%d+$"))) then
+    if isInCheckpointFolder and (lname:find("part") or tonumber(lname:match("^%d+$")) or part:FindFirstChildOfClass("TouchTransmitter")) then
         return true
     end
     return false
 end
 
--- Cache all workspace static objects ONCE on startup (prevents CPU overloading / FPS drops)
+-- Background dynamic caching loop (Re-caches every 5 seconds to load newly streamed-in parts)
 local function cacheWorkspaceObjects()
     local treadmills = {}
     local checkpoints = {}
@@ -426,9 +430,15 @@ local function cacheWorkspaceObjects()
     end)
     CachedTreadmills = treadmills
     CachedCheckpoints = checkpoints
-    print("[AJIZ SYSTEM] Statically cached " .. #treadmills .. " treadmills and " .. #checkpoints .. " checkpoints.")
 end
-task.spawn(cacheWorkspaceObjects)
+
+-- Spawn background caching loop
+task.spawn(function()
+    while true do
+        pcall(cacheWorkspaceObjects)
+        task.wait(5) -- Re-scans every 5 seconds (Extremely lightweight, 60 FPS stable)
+    end
+end)
 
 -- Detect player's current stage/level from leaderstats or UI
 local function getCurrentStage()
