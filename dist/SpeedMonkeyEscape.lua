@@ -46,6 +46,10 @@ _G.WinArgs = nil
 _G.RebirthRemote = nil
 _G.RebirthArgs = nil
 
+-- Caching variables to prevent game freezes
+local CachedTreadmills = {}
+local CachedCheckpoints = {}
+
 -- Safe Table Dump Helper
 local function safeDump(tbl)
     if type(tbl) ~= "table" then return tostring(tbl) end
@@ -343,7 +347,8 @@ local function touchPart(part)
                 task.wait(0.05)
                 firetouchinterest(part, root, 1)
             else
-                moveToCF(part.CFrame * CFrame.new(0, 1.5, 0), 300)
+                -- Fallback directly on top of the part
+                root.CFrame = part.CFrame * CFrame.new(0, 1.5, 0)
             end
         end)
     end
@@ -376,8 +381,54 @@ local function triggerPrompt(parent)
 end
 
 -- ========================================================================
--- 🔍 ENVIRONMENT DETECTOR UTILS
+-- 🔍 ENVIRONMENT DETECTOR UTILS & STATIC CACHING (LAG REDUCTION)
 -- ========================================================================
+
+local function isCheckpoint(part)
+    local lname = string.lower(part.Name)
+    local hasTrigger = part:FindFirstChildOfClass("TouchTransmitter") ~= nil
+    
+    if lname:find("checkpoint") or lname:find("win") or lname:find("finish") or lname:find("pad") then
+        return true
+    end
+    if hasTrigger and (lname:find("part") or tonumber(lname:match("^%d+$"))) then
+        return true
+    end
+    return false
+end
+
+-- Cache all workspace static objects ONCE on startup (prevents CPU overloading / FPS drops)
+local function cacheWorkspaceObjects()
+    local treadmills = {}
+    local checkpoints = {}
+    pcall(function()
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                -- Scan Treadmills
+                local lname = string.lower(obj.Name)
+                if lname:find("treadmill") or lname:find("train") or lname:find("run") or
+                   hasAncestorKeyword(obj, "treadmill", "train", "run") then
+                    if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
+                        if lname == "belt" or lname == "run" or lname == "platform" or lname == "pad" then
+                            table.insert(treadmills, obj)
+                        end
+                    end
+                end
+                
+                -- Scan Checkpoints
+                if isCheckpoint(obj) then
+                    if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
+                        table.insert(checkpoints, obj)
+                    end
+                end
+            end
+        end
+    end)
+    CachedTreadmills = treadmills
+    CachedCheckpoints = checkpoints
+    print("[AJIZ SYSTEM] Statically cached " .. #treadmills .. " treadmills and " .. #checkpoints .. " checkpoints.")
+end
+task.spawn(cacheWorkspaceObjects)
 
 -- Detect player's current stage/level from leaderstats or UI
 local function getCurrentStage()
@@ -400,98 +451,57 @@ local function getCurrentStage()
 end
 
 local function findTreadmill()
-    local target = nil
-    pcall(function()
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj:IsA("BasePart") then
-                local lname = string.lower(obj.Name)
-                if lname:find("treadmill") or lname:find("train") or lname:find("run") or
-                   hasAncestorKeyword(obj, "treadmill", "train", "run") then
-                    
-                    if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
-                        if lname == "belt" or lname == "run" or lname == "platform" or lname == "pad" then
-                            target = obj
-                            break
-                        elseif not target then
-                            target = obj
-                        end
-                    end
-                end
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if root and #CachedTreadmills > 0 then
+        local closest = CachedTreadmills[1]
+        local minDist = (closest.Position - root.Position).Magnitude
+        for i = 2, #CachedTreadmills do
+            local t = CachedTreadmills[i]
+            local d = (t.Position - root.Position).Magnitude
+            if d < minDist then
+                minDist = d
+                closest = t
             end
         end
-    end)
-    return target
-end
-
-local function isCheckpoint(part)
-    local lname = string.lower(part.Name)
-    local hasTrigger = part:FindFirstChildOfClass("TouchTransmitter") ~= nil
-    
-    if lname:find("checkpoint") or lname:find("win") or lname:find("finish") or lname:find("pad") then
-        return true
+        return closest
     end
-    if hasTrigger and (lname:find("part") or tonumber(lname:match("^%d+$"))) then
-        return true
-    end
-    return false
+    return CachedTreadmills[1]
 end
 
--- Scan checkpoints matching the player's active stage to prevent cross-stage teleport glitches
-local function getCheckpointsForStage(stageNum)
-    local list = {}
-    pcall(function()
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj:IsA("BasePart") and isCheckpoint(obj) then
-                local lname = string.lower(obj.Name)
-                local parentName = obj.Parent and string.lower(obj.Parent.Name) or ""
-                local gParentName = obj.Parent and obj.Parent.Parent and string.lower(obj.Parent.Parent.Name) or ""
-                
-                local isMatch = false
-                if stageNum then
-                    local sNumStr = tostring(stageNum)
-                    if parentName:find(sNumStr) or gParentName:find(sNumStr) or hasAncestorKeyword(obj, "stage " .. sNumStr, "stage" .. sNumStr) then
-                        isMatch = true
-                    end
-                else
-                    isMatch = true
-                end
-                
-                if isMatch and not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
-                    table.insert(list, obj)
-                end
-            end
-        end
-    end)
-    return list
-end
-
+-- Filter checkspoints from static cache matching player's current stage number
 local function getStageCheckpoints()
     local stageNum = getCurrentStage()
-    local list = getCheckpointsForStage(stageNum)
+    local list = {}
     
-    -- Fallback: If no checkpoints found for that stage name, filter all checkpoints within a 600 stud distance
+    -- Filter checkpoints matching the current stage
+    pcall(function()
+        for _, cp in ipairs(CachedCheckpoints) do
+            local parentName = cp.Parent and string.lower(cp.Parent.Name) or ""
+            local gParentName = cp.Parent and cp.Parent.Parent and string.lower(cp.Parent.Parent.Name) or ""
+            local sNumStr = tostring(stageNum)
+            
+            if parentName:find(sNumStr) or gParentName:find(sNumStr) or hasAncestorKeyword(cp, "stage " .. sNumStr, "stage" .. sNumStr) then
+                table.insert(list, cp)
+            end
+        end
+    end)
+    
+    -- Fallback: Filter checkpoints within 600 studs from cache if stage naming mismatches
     if #list == 0 then
-        local allList = {}
         local char = LocalPlayer.Character
         local root = char and char:FindFirstChild("HumanoidRootPart")
         if root then
-            pcall(function()
-                for _, obj in ipairs(Workspace:GetDescendants()) do
-                    if obj:IsA("BasePart") and isCheckpoint(obj) then
-                        if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
-                            local dist = (obj.Position - root.Position).Magnitude
-                            if dist < 600 then
-                                table.insert(allList, obj)
-                            end
-                        end
-                    end
+            for _, cp in ipairs(CachedCheckpoints) do
+                local dist = (cp.Position - root.Position).Magnitude
+                if dist < 600 then
+                    table.insert(list, cp)
                 end
-            end)
+            end
         end
-        list = allList
     end
     
-    -- Sort sorted checkpoints
+    -- Sort checkpoints
     pcall(function()
         local char = LocalPlayer.Character
         local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -604,7 +614,11 @@ task.spawn(function()
         if _G.AutoRebirth then
             pcall(function()
                 if _G.RebirthRemote then
-                    _G.RebirthRemote:FireServer(unpack(_G.RebirthArgs or {}))
+                    local args = _G.RebirthArgs
+                    if not args or #args == 0 then
+                        args = {1} -- Standard Rebirth fallback parameter
+                    end
+                    _G.RebirthRemote:FireServer(unpack(args))
                 end
             end)
         end
