@@ -39,6 +39,7 @@ local success, fatalErr = pcall(function()
     _G.AutoRebirth = false
     _G.SpeedBoost = false
     _G.InfJump = false
+    local showWaypoints = false
 
     _G.TrainRemote = nil
     _G.TrainArgs = nil
@@ -52,6 +53,7 @@ local success, fatalErr = pcall(function()
     local CachedBestTreadmill = nil
     local CachedWinPad = nil
     local CachedSpawnCF = nil
+    local WaypointGuis = {}
 
     -- Safe Table Dump Helper
     local function safeDump(tbl)
@@ -770,6 +772,92 @@ local success, fatalErr = pcall(function()
         end
         return false
     end
+
+    -- ========================================================================
+    -- 🗺️ 3D VISUAL STAGE WAYPOINTS (ESP ENGINE FOR FLY/INFINITE JUMP NAVIGATION)
+    -- ========================================================================
+    local function clearWaypoints()
+        for _, gui in pairs(WaypointGuis) do
+            pcall(function() gui:Destroy() end)
+        end
+        WaypointGuis = {}
+    end
+
+    local function createWaypoint(part, text, color)
+        if not part then return end
+        
+        local billboard = Instance.new("BillboardGui")
+        billboard.Name = "AjizWaypoint"
+        billboard.Size = UDim2.new(0, 150, 0, 50)
+        billboard.AlwaysOnTop = true
+        billboard.Adornee = part
+        billboard.Parent = CoreGui or LocalPlayer:WaitForChild("PlayerGui")
+        
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, 0, 1, 0)
+        label.BackgroundTransparency = 1
+        label.TextColor3 = color or Color3.fromRGB(0, 255, 128)
+        label.TextStrokeTransparency = 0.2
+        label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+        label.TextSize = 13
+        label.Font = Enum.Font.SourceSansBold
+        label.Text = text
+        label.Parent = billboard
+        
+        table.insert(WaypointGuis, billboard)
+        
+        -- Dynamic distance text updater thread
+        task.spawn(function()
+            while billboard and billboard.Parent do
+                pcall(function()
+                    local char = LocalPlayer.Character
+                    local root = char and char:FindFirstChild("HumanoidRootPart")
+                    if root then
+                        local dist = math.floor((root.Position - part.Position).Magnitude)
+                        label.Text = text .. "\n[" .. dist .. " studs]"
+                    end
+                end)
+                task.wait(0.2)
+            end
+        end)
+    end
+
+    local function refreshWaypoints()
+        clearWaypoints()
+        if not showWaypoints then return end
+        
+        pcall(function()
+            -- 1. Identify checkpoints dynamically inside workspace stages
+            for _, obj in ipairs(Workspace:GetDescendants()) do
+                if obj:IsA("BasePart") then
+                    local lname = string.lower(obj.Name)
+                    -- Match checkpoint parts or spawn locations
+                    if lname:find("checkpoint") or lname:find("spawnlocation") or hasAncestorKeyword(obj, "checkpoint", "stages") then
+                        if obj:IsA("SpawnLocation") or lname:find("checkpoint") or (obj.Parent and obj.Parent.Name:lower():find("checkpoint")) then
+                            local num = obj.Name:match("%d+") or obj.Parent.Name:match("%d+") or ""
+                            createWaypoint(obj, "Stage " .. num, Color3.fromRGB(0, 255, 128))
+                        end
+                    end
+                end
+            end
+            
+            -- 2. Draw golden waypoint above the active Win Pad
+            local winPad = getBestWinPad()
+            if winPad then
+                createWaypoint(winPad, "🌟 WIN PAD 🌟", Color3.fromRGB(255, 215, 0))
+            end
+        end)
+    end
+
+    -- Wires waypoints loader loop into background streamer caching loop
+    task.spawn(function()
+        while true do
+            task.wait(5)
+            if showWaypoints then
+                pcall(refreshWaypoints)
+            end
+        end
+    end)
 
     -- ========================================================================
     -- ⚡ AUTOMATION BACKGROUND WORKERS
@@ -1801,6 +1889,15 @@ end)()
 
     Panel:AddToggle("Infinite Jump", false, function(state)
         _G.InfJump = state
+    end)
+
+    Panel:AddToggle("Show Stage Waypoints (ESP)", false, function(state)
+        showWaypoints = state
+        if state then
+            pcall(refreshWaypoints)
+        else
+            pcall(clearWaypoints)
+        end
     end)
 
     AjizLib:Notify("Ajiz Hub", "Speed Monkey Escape Script Upgraded!", 3)
