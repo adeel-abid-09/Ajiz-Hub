@@ -233,6 +233,7 @@ local success, fatalErr = pcall(function()
                     print("[AJIZ SYSTEM] Strict Auto-Detected Rebirth Remote: " .. obj.Name)
                     break
                 end
+            end
         end
     end
     pcall(scanRebirthRemote)
@@ -616,12 +617,13 @@ local success, fatalErr = pcall(function()
         pcall(function()
             for _, obj in ipairs(Workspace:GetDescendants()) do
                 if obj:IsA("BasePart") then
-                    -- Scan Treadmills
+                    -- Scan Treadmills (Flexible regex search to capture all treadmill parts/proximity pads)
                     local lname = string.lower(obj.Name)
-                    if lname:find("treadmill") or lname:find("train") or lname:find("run") or
-                       hasAncestorKeyword(obj, "treadmill", "train", "run") then
+                    local isTreadmillPart = lname:find("treadmill") or lname:find("train") or lname:find("run") or lname:find("belt") or lname:find("platform") or lname:find("pad") or hasAncestorKeyword(obj, "treadmill", "train", "run")
+                    if isTreadmillPart then
                         if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
-                            if lname == "belt" or lname == "run" or lname == "platform" or lname == "pad" then
+                            -- Include primary parts containing proximity prompts or matching base designations
+                            if obj:FindFirstChildOfClass("ProximityPrompt") or lname == "belt" or lname == "run" or lname == "treadmill" or lname:find("treadmill") then
                                 table.insert(treadmills, obj)
                             end
                         end
@@ -630,6 +632,7 @@ local success, fatalErr = pcall(function()
             end
         end)
         CachedTreadmills = treadmills
+        print("[AJIZ SYSTEM] Cached " .. #treadmills .. " treadmills.")
         
         -- Resolve and cache the best training machine matching the player's level
         pcall(function()
@@ -672,15 +675,18 @@ local success, fatalErr = pcall(function()
     -- ⚡ AUTOMATION BACKGROUND WORKERS
     -- ========================================================================
 
-    -- 1. Auto Train Worker (Super-fast speed training loop)
+    local isTraining = false
+    -- 1. Auto Train Worker (Super-fast speed training loop with concurrency protection)
     task.spawn(function()
         while true do
             task.wait(0.02) -- Supersonic train clicks!
-            if _G.AutoTrain then
+            if _G.AutoTrain and not isTraining then
+                isTraining = true
                 pcall(function()
                     -- Direct remote fire only if dynamic arguments are captured (guarantees correct remote)
                     if _G.TrainRemote and _G.TrainArgs then
                         _G.TrainRemote:FireServer(unpack(_G.TrainArgs))
+                        task.wait(0.02)
                     else
                         -- Fallback: Equip and activate tool
                         local tool = equipTrainTool()
@@ -696,12 +702,14 @@ local success, fatalErr = pcall(function()
                             local dist = (root.Position - treadmill.Position).Magnitude
                             if dist > 8 then
                                 moveToCF(treadmill.CFrame * CFrame.new(0, 3.5, 0), 300)
-                                task.wait(0.1)
+                                task.wait(0.2)
                                 triggerPrompt(treadmill) -- Trigger proximity prompt inside machine
                             end
                         end
+                        task.wait(0.1) -- Physics cooldown
                     end
                 end)
+                isTraining = false
             end
         end
     end)
