@@ -68,6 +68,60 @@ local function Notify(title, msg, dur)
     end)
 end
 
+-- Recursive Ancestor Scanner to detect nested parts in Lobby/Obby folders
+local function hasAncestorKeyword(instance, keyword1, keyword2, keyword3)
+    local parent = instance.Parent
+    while parent and parent ~= Workspace do
+        local pname = string.lower(parent.Name)
+        if pname:find(keyword1) or (keyword2 and pname:find(keyword2)) or (keyword3 and pname:find(keyword3)) then
+            return true
+        end
+        parent = parent.Parent
+    end
+    return false
+end
+
+-- Workspace structure and remote event dumper to local file
+local function dumpWorkspace()
+    pcall(function()
+        if writefile then
+            local lines = {}
+            table.insert(lines, "=== AJIZ WORKSPACE DUMP ===")
+            
+            local function scan(instance, depth)
+                if depth > 4 then return end
+                local indent = string.rep("  ", depth)
+                local name = instance.Name
+                local className = instance.ClassName
+                
+                -- Log containers and keywords
+                if instance:IsA("Folder") or instance:IsA("Model") or instance:IsA("Configuration") or 
+                   name:lower():find("treadmill") or name:lower():find("win") or name:lower():find("finish") or name:lower():find("checkpoint") then
+                    table.insert(lines, indent .. name .. " (" .. className .. ")")
+                    for _, child in ipairs(instance:GetChildren()) do
+                        scan(child, depth + 1)
+                    end
+                end
+            end
+            
+            for _, child in ipairs(workspace:GetChildren()) do
+                scan(child, 0)
+            end
+            
+            table.insert(lines, "\n=== REPLICATEDSTORAGE REMOTES ===")
+            for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+                if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                    table.insert(lines, obj:GetFullName() .. " (" .. obj.ClassName .. ")")
+                end
+            end
+            
+            writefile("ajiz_sme_dump.txt", table.concat(lines, "\n"))
+            print("[AJIZ SYSTEM] Workspace structure successfully dumped to 'ajiz_sme_dump.txt'!")
+        end
+    end)
+end
+pcall(dumpWorkspace)
+
 -- ========================================================================
 -- 🧠 DUAL-LAYER REMOTE HOOK (C-Level Method Hooks + Metamethod Fallback)
 -- ========================================================================
@@ -225,35 +279,45 @@ RunService.Stepped:Connect(function()
     end
 end)
 
--- Safe Teleport Handler
-local currentTween = nil
-local function SafeTeleport(targetCFrame)
+-- Safe Linear Teleport/Tween Handler (Prevents Speed Kicks)
+local function tweenToPart(part, speed)
+    speed = speed or 100
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
-    if not root then return end
+    if not root or not part then return false end
 
-    if currentTween then
-        currentTween:Cancel()
-        currentTween = nil
+    local targetCF = part.CFrame * CFrame.new(0, 3, 0)
+    local dist = (root.Position - targetCF.Position).Magnitude
+    if dist < 8 then
+        root.CFrame = targetCF
+        return true
     end
 
-    EnableFloat(root)
-    
-    local dist = (root.Position - targetCFrame.Position).Magnitude
-    if dist < 45 then
-        root.CFrame = targetCFrame
-        DisableFloat()
-        return
-    end
-
-    local speed = 250
     local tweenInfo = TweenInfo.new(dist / speed, Enum.EasingStyle.Linear)
-    currentTween = TweenService:Create(root, tweenInfo, { CFrame = targetCFrame })
-    currentTween:Play()
-    currentTween.Completed:Connect(function()
-        DisableFloat()
-        currentTween = nil
+    local tween = TweenService:Create(root, tweenInfo, { CFrame = targetCF })
+    
+    local completed = false
+    local conn
+    conn = tween.Completed:Connect(function()
+        completed = true
+        conn:Disconnect()
     end)
+    
+    EnableFloat(root)
+    tween:Play()
+    
+    while not completed and (_G.AutoWin or _G.AutoTrain) do
+        task.wait(0.05)
+    end
+    
+    if not (_G.AutoWin or _G.AutoTrain) then
+        tween:Cancel()
+        DisableFloat()
+        return false
+    end
+    
+    DisableFloat()
+    return true
 end
 
 -- Checkpoint Touch Trigger
@@ -267,10 +331,37 @@ local function touchPart(part)
                 task.wait(0.05)
                 firetouchinterest(part, root, 1)
             else
-                SafeTeleport(part.CFrame * CFrame.new(0, 2, 0))
+                -- Fallback directly on top of the part
+                root.CFrame = part.CFrame * CFrame.new(0, 1.5, 0)
             end
         end)
     end
+end
+
+-- Trigger Proximity Prompt inside treadmill
+local function triggerPrompt(parent)
+    local prompt = parent:FindFirstChildOfClass("ProximityPrompt") or parent.Parent:FindFirstChildOfClass("ProximityPrompt")
+    if not prompt then
+        for _, child in ipairs(parent:GetChildren()) do
+            if child:IsA("ProximityPrompt") then
+                prompt = child
+                break
+            end
+        end
+    end
+    if prompt then
+        pcall(function()
+            if fireproximityprompt then
+                fireproximityprompt(prompt)
+            else
+                prompt:InputHoldBegin()
+                task.wait(prompt.HoldDuration + 0.05)
+                prompt:InputHoldEnd()
+            end
+        end)
+        return true
+    end
+    return false
 end
 
 -- ========================================================================
@@ -280,15 +371,11 @@ end
 local function findTreadmill()
     local target = nil
     pcall(function()
-        for _, obj in ipairs(workspace:GetDescendants()) do
+        for _, obj in ipairs(Workspace:GetDescendants()) do
             if obj:IsA("BasePart") then
                 local lname = string.lower(obj.Name)
-                local parentName = obj.Parent and string.lower(obj.Parent.Name) or ""
-                local gParentName = obj.Parent and obj.Parent.Parent and string.lower(obj.Parent.Parent.Name) or ""
-                
                 if lname:find("treadmill") or lname:find("train") or lname:find("run") or
-                   parentName:find("treadmill") or parentName:find("train") or
-                   gParentName:find("treadmill") or gParentName:find("train") then
+                   hasAncestorKeyword(obj, "treadmill", "train", "run") then
                     
                     if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
                         if lname == "belt" or lname == "run" or lname == "platform" or lname == "pad" then
@@ -305,32 +392,39 @@ local function findTreadmill()
     return target
 end
 
+local function isCheckpoint(part)
+    local lname = string.lower(part.Name)
+    local hasTrigger = part:FindFirstChildOfClass("TouchTransmitter") ~= nil
+    
+    if lname:find("checkpoint") or lname:find("win") or lname:find("finish") or lname:find("pad") then
+        return true
+    end
+    if hasTrigger and (lname:find("part") or tonumber(lname:match("^%d+$"))) then
+        return true
+    end
+    return false
+end
+
 local function getCheckpoints()
     local list = {}
     pcall(function()
-        for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("BasePart") then
-                local lname = string.lower(obj.Name)
-                local parentName = obj.Parent and string.lower(obj.Parent.Name) or ""
-                local gParentName = obj.Parent and obj.Parent.Parent and string.lower(obj.Parent.Parent.Name) or ""
-                
-                if (lname:find("finish") or lname == "win" or lname:find("^win$") or lname:find("win_") or lname:find("winpad") or lname:find("winpart") or lname:find("endpart") or lname:find("checkpoint") or
-                    parentName:find("win") or parentName:find("finish") or parentName:find("stage") or parentName:find("obby") or
-                    gParentName:find("win") or gParentName:find("finish") or gParentName:find("stage") or gParentName:find("obby")) and not obj:IsDescendantOf(LocalPlayer.Character) then
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("BasePart") and isCheckpoint(obj) then
+                if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
                     table.insert(list, obj)
                 end
             end
         end
     end)
     
-    -- Sort checkpoints sequentially by index number or proximity
+    -- Sort checkpoints sequentially by index number or Z-coordinate spacing
     pcall(function()
         local char = LocalPlayer.Character
         local root = char and char:FindFirstChild("HumanoidRootPart")
         if root then
             table.sort(list, function(a, b)
-                local aNum = tonumber(a.Name:match("%d+"))
-                local bNum = tonumber(b.Name:match("%d+"))
+                local aNum = tonumber(a.Name:match("%d+")) or tonumber(a.Parent.Name:match("%d+"))
+                local bNum = tonumber(b.Name:match("%d+")) or tonumber(b.Parent.Name:match("%d+"))
                 if aNum and bNum then
                     return aNum < bNum
                 end
@@ -370,30 +464,32 @@ task.spawn(function()
         task.wait(0.1)
         if _G.AutoTrain then
             pcall(function()
-                -- Direct remote fire
+                -- Direct remote fire if captured
                 if _G.TrainRemote then
                     _G.TrainRemote:FireServer(unpack(_G.TrainArgs or {}))
-                end
-                
-                -- Equip and activate tool
-                local tool = equipTrainTool()
-                if tool then
-                    tool:Activate()
-                end
-                
-                -- Treadmill physics walking simulation
-                local treadmill = findTreadmill()
-                local char = LocalPlayer.Character
-                local root = char and char:FindFirstChild("HumanoidRootPart")
-                if treadmill and root then
-                    local dist = (root.Position - treadmill.Position).Magnitude
-                    if dist > 8 then
-                        root.CFrame = treadmill.CFrame * CFrame.new(0, 3.5, 0)
+                else
+                    -- Fallback: Equip and activate tool
+                    local tool = equipTrainTool()
+                    if tool then
+                        tool:Activate()
                     end
                     
-                    local hum = char:FindFirstChildOfClass("Humanoid")
-                    if hum then
-                        hum:Move(Vector3.new(0, 0, -1), true)
+                    -- Treadmill physical teleport & walk simulation
+                    local treadmill = findTreadmill()
+                    local char = LocalPlayer.Character
+                    local root = char and char:FindFirstChild("HumanoidRootPart")
+                    if treadmill and root then
+                        local dist = (root.Position - treadmill.Position).Magnitude
+                        if dist > 8 then
+                            root.CFrame = treadmill.CFrame * CFrame.new(0, 3.5, 0)
+                            task.wait(0.1)
+                            triggerPrompt(treadmill) -- Trigger proximity prompt if any
+                        end
+                        
+                        local hum = char:FindFirstChildOfClass("Humanoid")
+                        if hum then
+                            hum:Move(Vector3.new(0, 0, -1), true)
+                        end
                     end
                 end
             end)
@@ -401,7 +497,7 @@ task.spawn(function()
     end
 end)
 
--- 2. Auto Win Worker
+-- 2. Auto Win Worker (Traverses checkpoints sequentially)
 task.spawn(function()
     while true do
         task.wait(1.5)
@@ -414,8 +510,13 @@ task.spawn(function()
                     if #checkpoints > 0 then
                         for _, cp in ipairs(checkpoints) do
                             if not _G.AutoWin then break end
-                            touchPart(cp)
-                            task.wait(0.25)
+                            
+                            -- Move smoothly to checkpoint to prevent speed kick
+                            local reached = tweenToPart(cp, 150)
+                            if reached then
+                                touchPart(cp)
+                                task.wait(0.4)
+                            end
                         end
                     else
                         warn("[AJIZ HUB] Auto-Win enabled but no obby/checkpoint pads found in workspace.")
@@ -1344,7 +1445,7 @@ local Panel = AjizLib:CreateWindow({
 Panel:AddToggle("Auto Train Speed", false, function(state)
     _G.AutoTrain = state
     if state then
-        Notify("Ajiz Hub", "Auto-Train Active! Manual clicks capture remotes.", 4)
+        Notify("Ajiz Hub", "Auto-Train Active! Check dev log if remotes hook.", 4)
     else
         pcall(DisableFloat)
     end
@@ -1353,13 +1454,9 @@ end)
 Panel:AddToggle("Auto Win (Obby)", false, function(state)
     _G.AutoWin = state
     if state then
-        Notify("Ajiz Hub", "Auto-Win Active! Traversing checkpoints safely.", 3)
+        Notify("Ajiz Hub", "Auto-Win Active! Safely traversing checkpoints.", 3)
     else
         pcall(DisableFloat)
-        if currentTween then
-            currentTween:Cancel()
-            currentTween = nil
-        end
     end
 end)
 
