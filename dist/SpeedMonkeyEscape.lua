@@ -260,8 +260,10 @@ local success, fatalErr = pcall(function()
         end
     end
 
+    -- Toggle collision safety ONLY during movement to prevent floating bobbing glitches
+    local noCollisionActive = false
     RunService.Stepped:Connect(function()
-        if _G.AutoTrain or _G.AutoWin then
+        if noCollisionActive then
             pcall(function()
                 local char = LocalPlayer.Character
                 if char then
@@ -288,6 +290,7 @@ local success, fatalErr = pcall(function()
             return true
         end
 
+        noCollisionActive = true
         EnableFloat(root)
         
         local startCF = root.CFrame
@@ -296,11 +299,7 @@ local success, fatalErr = pcall(function()
         
         while os.clock() - startTime < duration do
             if not _G.AutoWin and not _G.AutoTrain then break end
-            
-            -- Timeout Fail-safe (Max 4 seconds per movement step to prevent infinite hangs)
-            if os.clock() - startTime > 4 then 
-                break 
-            end
+            if os.clock() - startTime > 4 then break end
             
             char = LocalPlayer.Character
             local currentRoot = char and char:FindFirstChild("HumanoidRootPart")
@@ -311,7 +310,6 @@ local success, fatalErr = pcall(function()
             local t = elapsed / duration
             if t > 1 then t = 1 end
             
-            -- Safe linear interpolation
             root.CFrame = startCF:Lerp(targetCF, t)
             root.Velocity = Vector3.zero
             root.RotVelocity = Vector3.zero
@@ -330,6 +328,7 @@ local success, fatalErr = pcall(function()
         end
         
         DisableFloat()
+        noCollisionActive = false
         return true
     end
 
