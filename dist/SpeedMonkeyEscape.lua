@@ -40,6 +40,7 @@ local success, fatalErr = pcall(function()
     _G.SpeedBoost = false
     _G.InfJump = false
     local showWaypoints = false
+    local highestStageReached = 1
 
     _G.TrainRemote = nil
     _G.TrainArgs = nil
@@ -625,6 +626,27 @@ local success, fatalErr = pcall(function()
         end)
     end
 
+    -- Filter all cached checkpoints to find the part matching a target stage index
+    local function getCheckpointPart(stageNum)
+        local targetPart = nil
+        pcall(function()
+            for _, obj in ipairs(Workspace:GetDescendants()) do
+                if obj:IsA("BasePart") then
+                    local lname = string.lower(obj.Name)
+                    -- Check if it matches checkpoint structure
+                    if lname:find("checkpoint") or lname:find("spawnlocation") or hasAncestorKeyword(obj, "checkpoint", "stages") then
+                        local num = tonumber(obj.Name:match("%d+")) or (obj.Parent and tonumber(obj.Parent.Name:match("%d+")))
+                        if num == stageNum then
+                            targetPart = obj
+                            break
+                        end
+                    end
+                end
+            end
+        end)
+        return targetPart
+    end
+
     -- Filter all cached treadmills to locate the best unlocked machine (based on either level or total wins)
     local function getBestTreadmill()
         local playerLvl = getCurrentStage()
@@ -729,12 +751,52 @@ local success, fatalErr = pcall(function()
         end
     end
 
+    -- ========================================================================
+    -- 🗺️ AUTO-RESUME CHECKPOINT ON SPAWN (DEATH & REBIRTH BYPASS)
+    -- ========================================================================
+    local function autoResumeCheckpoint()
+        pcall(function()
+            local current = getCurrentStage()
+            if current < highestStageReached then
+                local checkpointPart = getCheckpointPart(highestStageReached)
+                if checkpointPart then
+                    local char = LocalPlayer.Character
+                    local root = char and char:WaitForChild("HumanoidRootPart", 5)
+                    if root then
+                        task.wait(0.5) -- Small delay to stabilize spawning
+                        root.CFrame = checkpointPart.CFrame * CFrame.new(0, 2, 0)
+                        task.wait(0.2)
+                        Notify("Ajiz Hub", "Auto-Resumed to Stage " .. highestStageReached .. " after Rebirth/Death!", 4)
+                    end
+                end
+            end
+        end)
+    end
+
+    -- Main Character Spawning Hook
     LocalPlayer.CharacterAdded:Connect(function(char)
         bindSpeed(char)
+        task.spawn(function()
+            task.wait(1.5) -- Wait for workspace elements streaming loading
+            autoResumeCheckpoint()
+        end)
     end)
     if LocalPlayer.Character then
         bindSpeed(LocalPlayer.Character)
     end
+
+    -- Monitor player's highest stage progress dynamically (Stores highest stage for Auto-Resume)
+    task.spawn(function()
+        while true do
+            task.wait(0.5)
+            pcall(function()
+                local current = getCurrentStage()
+                if current > highestStageReached then
+                    highestStageReached = current
+                end
+            end)
+        end
+    end)
 
     -- ========================================================================
     -- ⚡ MOBILE / TOUCH DEVICE JUMP DETECTION HOOKS
