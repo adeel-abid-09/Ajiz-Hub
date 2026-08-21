@@ -274,44 +274,56 @@ RunService.Stepped:Connect(function()
     end
 end)
 
--- Safe Linear Teleport/Tween Handler (Prevents Speed Kicks and Falls)
-local function tweenToPart(part, speed)
-    speed = speed or 100
+-- Robust Manual CFrame Lerp (Completely replaces TweenService to prevent hanging, stuck anchors and death errors)
+local function moveToCF(targetCF, speed)
+    speed = speed or 150
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
-    if not root or not part then return false end
+    if not root then return false end
 
-    local targetCF = part.CFrame * CFrame.new(0, 3, 0)
     local dist = (root.Position - targetCF.Position).Magnitude
     if dist < 8 then
         root.CFrame = targetCF
         return true
     end
 
-    local tweenInfo = TweenInfo.new(dist / speed, Enum.EasingStyle.Linear)
-    local tween = TweenService:Create(root, tweenInfo, { CFrame = targetCF })
+    EnableFloat(root)
     
-    local completed = false
-    local conn
-    conn = tween.Completed:Connect(function()
-        completed = true
-        conn:Disconnect()
-    end)
+    local startCF = root.CFrame
+    local duration = dist / speed
+    local startTime = os.clock()
     
-    root.Anchored = true -- Anchor to prevent falling down into void due to noclip
-    tween:Play()
-    
-    while not completed and (_G.AutoWin or _G.AutoTrain) do
-        task.wait(0.05)
+    while os.clock() - startTime < duration do
+        if not _G.AutoWin and not _G.AutoTrain then break end
+        
+        char = LocalPlayer.Character
+        local currentRoot = char and char:FindFirstChild("HumanoidRootPart")
+        if not currentRoot then break end
+        root = currentRoot
+        
+        local elapsed = os.clock() - startTime
+        local t = elapsed / duration
+        if t > 1 then t = 1 end
+        
+        -- Safe linear interpolation
+        root.CFrame = startCF:Lerp(targetCF, t)
+        root.Velocity = Vector3.zero
+        root.RotVelocity = Vector3.zero
+        
+        task.wait() -- Wait for frame step
     end
     
-    root.Anchored = false -- Unanchor immediately after completion
-    
-    if not (_G.AutoWin or _G.AutoTrain) then
-        tween:Cancel()
-        return false
+    -- Final snap
+    if _G.AutoWin or _G.AutoTrain then
+        char = LocalPlayer.Character
+        local currentRoot = char and char:FindFirstChild("HumanoidRootPart")
+        if currentRoot then
+            currentRoot.CFrame = targetCF
+            currentRoot.Velocity = Vector3.zero
+        end
     end
     
+    DisableFloat()
     return true
 end
 
@@ -326,8 +338,7 @@ local function touchPart(part)
                 task.wait(0.05)
                 firetouchinterest(part, root, 1)
             else
-                -- Fallback directly on top of the part
-                root.CFrame = part.CFrame * CFrame.new(0, 1.5, 0)
+                moveToCF(part.CFrame * CFrame.new(0, 1.5, 0), 200)
             end
         end)
     end
@@ -476,11 +487,10 @@ task.spawn(function()
                     if treadmill and root then
                         local dist = (root.Position - treadmill.Position).Magnitude
                         if dist > 8 then
-                            root.CFrame = treadmill.CFrame * CFrame.new(0, 3.5, 0)
+                            moveToCF(treadmill.CFrame * CFrame.new(0, 3.5, 0), 180)
                             task.wait(0.1)
                             triggerPrompt(treadmill) -- Trigger proximity prompt if any
                         end
-                        -- Standing still on treadmill is required. Move input removed to prevent sliding off.
                     end
                 end
             end)
@@ -503,11 +513,11 @@ task.spawn(function()
                         for _, cp in ipairs(checkpoints) do
                             if not _G.AutoWin then break end
                             
-                            -- Move smoothly to checkpoint using safe anchored linear tween
-                            local reached = tweenToPart(cp, 150)
+                            -- Move smoothly to checkpoint using safe linear lerp
+                            local reached = moveToCF(cp.CFrame * CFrame.new(0, 3, 0), 160)
                             if reached then
                                 touchPart(cp)
-                                task.wait(0.4)
+                                task.wait(0.3)
                             end
                         end
                     else
