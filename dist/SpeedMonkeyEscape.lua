@@ -735,6 +735,43 @@ local success, fatalErr = pcall(function()
     end
 
     -- ========================================================================
+    -- ⚡ MOBILE / TOUCH DEVICE JUMP DETECTION HOOKS
+    -- ========================================================================
+    local isJumpHeld = false
+    local touchGui = LocalPlayer:WaitForChild("PlayerGui"):WaitForChild("TouchGui", 3)
+    local jumpBtn = touchGui and touchGui:WaitForChild("TouchFrame", 3) and touchGui.TouchFrame:WaitForChild("JumpButton", 3)
+
+    if jumpBtn then
+        jumpBtn.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch then
+                isJumpHeld = true
+            end
+        end)
+        jumpBtn.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.Touch then
+                isJumpHeld = false
+            end
+        end)
+    end
+
+    -- Device agnostic jump checker (PC keyboard + Mobile Touch Button + Gamepad key)
+    local function isJumpingHeld()
+        if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
+            return true
+        end
+        if isJumpHeld then
+            return true
+        end
+        local successGP, heldGP = pcall(function()
+            return UserInputService:IsGamepadButtonDown(Enum.UserInputType.Gamepad1, Enum.KeyCode.ButtonA)
+        end)
+        if successGP and heldGP then
+            return true
+        end
+        return false
+    end
+
+    -- ========================================================================
     -- ⚡ AUTOMATION BACKGROUND WORKERS
     -- ========================================================================
 
@@ -840,16 +877,20 @@ local success, fatalErr = pcall(function()
         end
     end)
 
-    -- Infinite Jump
-    UserInputService.JumpRequest:Connect(function()
-        if _G.InfJump then
-            pcall(function()
-                local char = LocalPlayer.Character
-                local hum = char and char:FindFirstChildOfClass("Humanoid")
-                if hum then
-                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
-                end
-            end)
+    -- 5. Infinite Jump Holding Fly Worker
+    task.spawn(function()
+        while true do
+            task.wait(0.04) -- Ultra-fast responsive flight checks (25 checks/sec)
+            if _G.InfJump and isJumpingHeld() then
+                pcall(function()
+                    local char = LocalPlayer.Character
+                    local root = char and char:FindFirstChild("HumanoidRootPart")
+                    if root then
+                        -- Apply continuous smooth upward force to character
+                        root.Velocity = Vector3.new(root.Velocity.X, 60, root.Velocity.Z)
+                    end
+                end)
+            end
         end
     end)
 
