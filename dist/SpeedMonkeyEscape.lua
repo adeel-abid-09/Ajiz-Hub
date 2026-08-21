@@ -477,12 +477,13 @@ local function updateWinCaching()
     pcall(function()
         CachedWinPad = getBestWinPad()
         
-        -- Locate SpawnLocation
-        local spawnLoc = Workspace:FindFirstChildOfClass("SpawnLocation")
+        -- Locate SpawnLocation (Targeting the exact Lobby Spawn Pad shown in user screenshot)
+        local spawnLoc = Workspace:FindFirstChild("SpawnLocation") or Workspace:FindFirstChildOfClass("SpawnLocation")
         if spawnLoc then
             CachedSpawnCF = spawnLoc.CFrame
         else
-            local lobbySpawn = Workspace:FindFirstChild("Spawn") or Workspace:FindFirstChild("LobbySpawn")
+            -- Look for parts named "Spawn" or "Lobby"
+            local lobbySpawn = Workspace:FindFirstChild("Spawn") or Workspace:FindFirstChild("LobbySpawn") or Workspace:FindFirstChild("Lobby")
             if lobbySpawn then
                 CachedSpawnCF = lobbySpawn.CFrame
             else
@@ -607,7 +608,7 @@ task.spawn(function()
     end
 end)
 
--- 2. Auto Win Worker (Loops teleporting between the highest Win Pad and Spawn with dynamic return wait)
+-- 2. Auto Win Worker (Forced loop: Teleports to Win Pad, then instantly forces back to Lobby Spawn pad)
 task.spawn(function()
     while true do
         task.wait(0.05)
@@ -621,19 +622,13 @@ task.spawn(function()
                 local root = char and char:FindFirstChild("HumanoidRootPart")
                 
                 if root and CachedWinPad and CachedSpawnCF then
-                    -- 1. Teleport player directly onto the highest value Win Pad (+200, +100 etc.)
+                    -- 1. Teleport player directly onto the Win Pad
                     root.CFrame = CachedWinPad.CFrame * CFrame.new(0, 2, 0)
+                    task.wait(0.25) -- Cooldown to guarantee touch registers on server
                     
-                    -- 2. Wait until the game's auto-return logic teleports player back to Spawn
-                    local startTime = os.clock()
-                    repeat
-                        task.wait(0.02)
-                        char = LocalPlayer.Character
-                        root = char and char:FindFirstChild("HumanoidRootPart")
-                    until not _G.AutoWin or not root or (root.Position - CachedSpawnCF.Position).Magnitude < 15 or (os.clock() - startTime) > 1.2
-                    
-                    -- Safe cooldown before starting the next win iteration
-                    task.wait(0.08)
+                    -- 2. Force-teleport player back to Lobby Spawn pad (Prevents training machines auto-teleport)
+                    root.CFrame = CachedSpawnCF * CFrame.new(0, 3, 0)
+                    task.wait(0.25) -- Cooldown before next win iteration
                 end
             end)
         end
