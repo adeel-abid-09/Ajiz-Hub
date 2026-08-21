@@ -88,40 +88,24 @@ local success, fatalErr = pcall(function()
         return false
     end
 
-    -- Workspace structure and remote event dumper to local file
-    local function dumpWorkspace()
+    -- ReplicatedStorage remotes and Workspace structure dumper to local files for advanced diagnostics
+    local function dumpNetworkMetadata()
         pcall(function()
             if writefile then
                 local lines = {}
-                table.insert(lines, "=== AJIZ WORKSPACE DUMP ===")
-                
-                local function scan(instance, depth)
-                    if depth > 4 then return end
-                    local indent = string.rep("  ", depth)
-                    local name = instance.Name
-                    local className = instance.ClassName
-                    
-                    -- Log containers and keywords
-                    if instance:IsA("Folder") or instance:IsA("Model") or instance:IsA("BasePart") or instance:IsA("BillboardGui") then
-                        table.insert(lines, indent .. name .. " (" .. className .. ")")
-                        if not instance:IsA("BasePart") then
-                            for _, child in ipairs(instance:GetChildren()) do
-                                scan(child, depth + 1)
-                            end
-                        end
+                table.insert(lines, "=== AJIZ REPLICATEDSTORAGE REMOTES DUMP ===")
+                for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+                    if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") or obj:IsA("BindableEvent") or obj:IsA("BindableFunction") then
+                        local path = obj:GetFullName()
+                        table.insert(lines, path .. " (" .. obj.ClassName .. ")")
                     end
                 end
-                
-                for _, child in ipairs(workspace:GetChildren()) do
-                    scan(child, 0)
-                end
-                
-                writefile("ajiz_sme_dump.txt", table.concat(lines, "\n"))
-                print("[AJIZ SYSTEM] Workspace structure successfully dumped to 'ajiz_sme_dump.txt'!")
+                writefile("ajiz_sme_remotes.txt", table.concat(lines, "\n"))
+                print("[AJIZ SYSTEM] Remotes metadata successfully dumped to 'ajiz_sme_remotes.txt'!")
             end
         end)
     end
-    pcall(dumpWorkspace)
+    pcall(dumpNetworkMetadata)
 
     -- ========================================================================
     -- 🧠 DUAL-LAYER REMOTE HOOK (C-Level Method Hooks + Metamethod Fallback)
@@ -223,20 +207,33 @@ local success, fatalErr = pcall(function()
         end)
     end
 
-    -- Rebirth Remote Auto-Detection (Strict check to prevent tutorial remote mismatch)
-    local function scanRebirthRemote()
-        for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
-            if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
-                local lname = string.lower(obj.Name)
-                if lname == "rebirth" then
-                    _G.RebirthRemote = obj
-                    print("[AJIZ SYSTEM] Strict Auto-Detected Rebirth Remote: " .. obj.Name)
-                    break
+    -- Wildcard auto-detect for Progression & Farming remotes
+    local function autoDetectNetworkRemotes()
+        pcall(function()
+            for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+                if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                    local lname = string.lower(obj.Name)
+                    -- 1. Detect Rebirth Remote
+                    if not _G.RebirthRemote and (lname:find("rebirth") or lname:find("prestige")) then
+                        _G.RebirthRemote = obj
+                        _G.RebirthArgs = {}
+                        print("[AJIZ SYSTEM] Auto-Detected Rebirth Remote: " .. obj:GetFullName())
+                    -- 2. Detect Train/Click Remote
+                    elseif not _G.TrainRemote and (lname:find("train") or lname:find("click") or lname:find("addspeed") or lname:find("speedevent")) then
+                        _G.TrainRemote = obj
+                        _G.TrainArgs = {}
+                        print("[AJIZ SYSTEM] Auto-Detected Train Remote: " .. obj:GetFullName())
+                    -- 3. Detect Win Remote
+                    elseif not _G.WinRemote and (lname:find("win") or lname:find("finish") or lname:find("claimwin")) then
+                        _G.WinRemote = obj
+                        _G.WinArgs = {}
+                        print("[AJIZ SYSTEM] Auto-Detected Win Remote: " .. obj:GetFullName())
+                    end
                 end
             end
-        end
+        end)
     end
-    pcall(scanRebirthRemote)
+    pcall(autoDetectNetworkRemotes)
 
     -- ========================================================================
     -- 🏝️ PHYSICS & NO-CLIP PLATFORM CORE
@@ -761,7 +758,7 @@ local success, fatalErr = pcall(function()
         end
     end)
 
-    -- 3. Auto Rebirth Worker
+    -- 3. Auto Rebirth Worker (Dynamic trigger with parameters fallback support)
     task.spawn(function()
         while true do
             task.wait(2.5)
@@ -770,9 +767,12 @@ local success, fatalErr = pcall(function()
                     if _G.RebirthRemote then
                         local args = _G.RebirthArgs
                         if not args or #args == 0 then
-                            args = {1} -- Standard Rebirth fallback parameter
+                            _G.RebirthRemote:FireServer()
+                            task.wait(0.5)
+                            _G.RebirthRemote:FireServer(1) -- Fallback parameter
+                        else
+                            _G.RebirthRemote:FireServer(unpack(args))
                         end
-                        _G.RebirthRemote:FireServer(unpack(args))
                     end
                 end)
             end
