@@ -274,9 +274,9 @@ RunService.Stepped:Connect(function()
     end
 end)
 
--- Robust Manual CFrame Lerp (Completely replaces TweenService to prevent hanging, stuck anchors and death errors)
+-- Robust Manual CFrame Lerp (With 4s Fail-Safe Timeout to prevent hangs)
 local function moveToCF(targetCF, speed)
-    speed = speed or 150
+    speed = speed or 250
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
     if not root then return false end
@@ -295,6 +295,11 @@ local function moveToCF(targetCF, speed)
     
     while os.clock() - startTime < duration do
         if not _G.AutoWin and not _G.AutoTrain then break end
+        
+        -- Timeout Fail-safe (Max 4 seconds per movement step to prevent infinite hangs)
+        if os.clock() - startTime > 4 then 
+            break 
+        end
         
         char = LocalPlayer.Character
         local currentRoot = char and char:FindFirstChild("HumanoidRootPart")
@@ -338,7 +343,7 @@ local function touchPart(part)
                 task.wait(0.05)
                 firetouchinterest(part, root, 1)
             else
-                moveToCF(part.CFrame * CFrame.new(0, 1.5, 0), 200)
+                moveToCF(part.CFrame * CFrame.new(0, 1.5, 0), 300)
             end
         end)
     end
@@ -373,6 +378,26 @@ end
 -- ========================================================================
 -- 🔍 ENVIRONMENT DETECTOR UTILS
 -- ========================================================================
+
+-- Detect player's current stage/level from leaderstats or UI
+local function getCurrentStage()
+    local stage = 1
+    pcall(function()
+        local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+        if leaderstats then
+            local stageVal = leaderstats:FindFirstChild("Stage") or leaderstats:FindFirstChild("Level") or leaderstats:FindFirstChild("Checkpoint")
+            if stageVal then
+                stage = stageVal.Value
+            end
+        else
+            local stageVal = LocalPlayer:FindFirstChild("Stage") or LocalPlayer:FindFirstChild("Level") or LocalPlayer:FindFirstChild("Checkpoint")
+            if stageVal then
+                stage = stageVal.Value
+            end
+        end
+    end)
+    return tonumber(stage) or 1
+end
 
 local function findTreadmill()
     local target = nil
@@ -411,19 +436,62 @@ local function isCheckpoint(part)
     return false
 end
 
-local function getCheckpoints()
+-- Scan checkpoints matching the player's active stage to prevent cross-stage teleport glitches
+local function getCheckpointsForStage(stageNum)
     local list = {}
     pcall(function()
         for _, obj in ipairs(Workspace:GetDescendants()) do
             if obj:IsA("BasePart") and isCheckpoint(obj) then
-                if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
+                local lname = string.lower(obj.Name)
+                local parentName = obj.Parent and string.lower(obj.Parent.Name) or ""
+                local gParentName = obj.Parent and obj.Parent.Parent and string.lower(obj.Parent.Parent.Name) or ""
+                
+                local isMatch = false
+                if stageNum then
+                    local sNumStr = tostring(stageNum)
+                    if parentName:find(sNumStr) or gParentName:find(sNumStr) or hasAncestorKeyword(obj, "stage " .. sNumStr, "stage" .. sNumStr) then
+                        isMatch = true
+                    end
+                else
+                    isMatch = true
+                end
+                
+                if isMatch and not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
                     table.insert(list, obj)
                 end
             end
         end
     end)
+    return list
+end
+
+local function getStageCheckpoints()
+    local stageNum = getCurrentStage()
+    local list = getCheckpointsForStage(stageNum)
     
-    -- Sort checkpoints sequentially by index number or Z-coordinate spacing
+    -- Fallback: If no checkpoints found for that stage name, filter all checkpoints within a 600 stud distance
+    if #list == 0 then
+        local allList = {}
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root then
+            pcall(function()
+                for _, obj in ipairs(Workspace:GetDescendants()) do
+                    if obj:IsA("BasePart") and isCheckpoint(obj) then
+                        if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
+                            local dist = (obj.Position - root.Position).Magnitude
+                            if dist < 600 then
+                                table.insert(allList, obj)
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+        list = allList
+    end
+    
+    -- Sort sorted checkpoints
     pcall(function()
         local char = LocalPlayer.Character
         local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -487,7 +555,7 @@ task.spawn(function()
                     if treadmill and root then
                         local dist = (root.Position - treadmill.Position).Magnitude
                         if dist > 8 then
-                            moveToCF(treadmill.CFrame * CFrame.new(0, 3.5, 0), 180)
+                            moveToCF(treadmill.CFrame * CFrame.new(0, 3.5, 0), 300)
                             task.wait(0.1)
                             triggerPrompt(treadmill) -- Trigger proximity prompt if any
                         end
@@ -508,20 +576,20 @@ task.spawn(function()
                 if _G.WinRemote and _G.WinArgs then
                     _G.WinRemote:FireServer(unpack(_G.WinArgs))
                 else
-                    local checkpoints = getCheckpoints()
+                    local checkpoints = getStageCheckpoints()
                     if #checkpoints > 0 then
                         for _, cp in ipairs(checkpoints) do
                             if not _G.AutoWin then break end
                             
-                            -- Move smoothly to checkpoint using safe linear lerp
-                            local reached = moveToCF(cp.CFrame * CFrame.new(0, 3, 0), 160)
+                            -- Move smoothly to checkpoint using safe linear lerp (300 Speed)
+                            local reached = moveToCF(cp.CFrame * CFrame.new(0, 3, 0), 300)
                             if reached then
                                 touchPart(cp)
-                                task.wait(0.3)
+                                task.wait(0.2)
                             end
                         end
                     else
-                        warn("[AJIZ HUB] Auto-Win enabled but no obby/checkpoint pads found.")
+                        warn("[AJIZ HUB] Auto-Win enabled but no checkpoints found in active stage.")
                     end
                 end
             end)
