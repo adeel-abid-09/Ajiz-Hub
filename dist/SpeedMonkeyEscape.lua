@@ -39,8 +39,9 @@ local success, fatalErr = pcall(function()
     _G.AutoRebirth = false
     _G.SpeedBoost = false
     _G.InfJump = false
-    local showWaypoints = false
+    
     local highestStageReached = 1
+    local diedAtPosition = nil
 
     _G.TrainRemote = nil
     _G.TrainArgs = nil
@@ -54,7 +55,6 @@ local success, fatalErr = pcall(function()
     local CachedBestTreadmill = nil
     local CachedWinPad = nil
     local CachedSpawnCF = nil
-    local WaypointGuis = {}
 
     -- Safe Table Dump Helper
     local function safeDump(tbl)
@@ -752,7 +752,7 @@ local success, fatalErr = pcall(function()
     end
 
     -- ========================================================================
-    -- 🗺️ AUTO-RESUME CHECKPOINT ON SPAWN (DEATH & REBIRTH BYPASS)
+    -- 🗺️ AUTO-RESUME CHECKPOINT / SPAWN AT DEATH COORDINATES
     -- ========================================================================
     local function autoResumeCheckpoint()
         pcall(function()
@@ -766,23 +766,67 @@ local success, fatalErr = pcall(function()
                         task.wait(0.5) -- Small delay to stabilize spawning
                         root.CFrame = checkpointPart.CFrame * CFrame.new(0, 2, 0)
                         task.wait(0.2)
-                        Notify("Ajiz Hub", "Auto-Resumed to Stage " .. highestStageReached .. " after Rebirth/Death!", 4)
+                        Notify("Ajiz Hub", "Auto-Resumed to Stage " .. highestStageReached .. " after Rebirth!", 4)
                     end
                 end
             end
         end)
     end
 
-    -- Main Character Spawning Hook
+    -- Main Character Spawning Hook (Handles both Death Teleport & Rebirth Resume Teleport)
     LocalPlayer.CharacterAdded:Connect(function(char)
         bindSpeed(char)
+        
+        -- Hook Died event of new character to capture death coordinates
+        local hum = char:WaitForChild("Humanoid", 5) or char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum.Died:Connect(function()
+                pcall(function()
+                    local root = char:FindFirstChild("HumanoidRootPart")
+                    if root then
+                        diedAtPosition = root.CFrame
+                    end
+                end)
+            end)
+        end
+        
+        -- Spawning handler thread
         task.spawn(function()
-            task.wait(1.5) -- Wait for workspace elements streaming loading
-            autoResumeCheckpoint()
+            task.wait(0.2) -- Instant response on spawn
+            pcall(function()
+                local root = char:WaitForChild("HumanoidRootPart", 5)
+                if root then
+                    if diedAtPosition then
+                        -- Teleport player back to the exact coordinate location where they died
+                        root.CFrame = diedAtPosition
+                        diedAtPosition = nil -- Clear cache
+                        Notify("Ajiz Hub", "Resumed at Death Location!", 3)
+                    else
+                        -- Fallback to obby checkpoint auto-resume if they rebirthed
+                        task.wait(1.3) -- Additional wait for obby stages stream loading
+                        autoResumeCheckpoint()
+                    end
+                end
+            end)
         end)
     end)
+
     if LocalPlayer.Character then
         bindSpeed(LocalPlayer.Character)
+        -- Set up Died connection for current character on startup
+        pcall(function()
+            local hum = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.Died:Connect(function()
+                    pcall(function()
+                        local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                        if root then
+                            diedAtPosition = root.CFrame
+                        end
+                    end)
+                end)
+            end
+        end)
     end
 
     -- Monitor player's highest stage progress dynamically (Stores highest stage for Auto-Resume)
@@ -834,92 +878,6 @@ local success, fatalErr = pcall(function()
         end
         return false
     end
-
-    -- ========================================================================
-    -- 🗺️ 3D VISUAL STAGE WAYPOINTS (ESP ENGINE FOR FLY/INFINITE JUMP NAVIGATION)
-    -- ========================================================================
-    local function clearWaypoints()
-        for _, gui in pairs(WaypointGuis) do
-            pcall(function() gui:Destroy() end)
-        end
-        WaypointGuis = {}
-    end
-
-    local function createWaypoint(part, text, color)
-        if not part then return end
-        
-        local billboard = Instance.new("BillboardGui")
-        billboard.Name = "AjizWaypoint"
-        billboard.Size = UDim2.new(0, 150, 0, 50)
-        billboard.AlwaysOnTop = true
-        billboard.Adornee = part
-        billboard.Parent = CoreGui or LocalPlayer:WaitForChild("PlayerGui")
-        
-        local label = Instance.new("TextLabel")
-        label.Size = UDim2.new(1, 0, 1, 0)
-        label.BackgroundTransparency = 1
-        label.TextColor3 = color or Color3.fromRGB(0, 255, 128)
-        label.TextStrokeTransparency = 0.2
-        label.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-        label.TextSize = 13
-        label.Font = Enum.Font.SourceSansBold
-        label.Text = text
-        label.Parent = billboard
-        
-        table.insert(WaypointGuis, billboard)
-        
-        -- Dynamic distance text updater thread
-        task.spawn(function()
-            while billboard and billboard.Parent do
-                pcall(function()
-                    local char = LocalPlayer.Character
-                    local root = char and char:FindFirstChild("HumanoidRootPart")
-                    if root then
-                        local dist = math.floor((root.Position - part.Position).Magnitude)
-                        label.Text = text .. "\n[" .. dist .. " studs]"
-                    end
-                end)
-                task.wait(0.2)
-            end
-        end)
-    end
-
-    local function refreshWaypoints()
-        clearWaypoints()
-        if not showWaypoints then return end
-        
-        pcall(function()
-            -- 1. Identify checkpoints dynamically inside workspace stages
-            for _, obj in ipairs(Workspace:GetDescendants()) do
-                if obj:IsA("BasePart") then
-                    local lname = string.lower(obj.Name)
-                    -- Match checkpoint parts or spawn locations
-                    if lname:find("checkpoint") or lname:find("spawnlocation") or hasAncestorKeyword(obj, "checkpoint", "stages") then
-                        if obj:IsA("SpawnLocation") or lname:find("checkpoint") or (obj.Parent and obj.Parent.Name:lower():find("checkpoint")) then
-                            local num = obj.Name:match("%d+") or obj.Parent.Name:match("%d+") or ""
-                            createWaypoint(obj, "Stage " .. num, Color3.fromRGB(0, 255, 128))
-                        end
-                    end
-                end
-            end
-            
-            -- 2. Draw golden waypoint above the active Win Pad
-            local winPad = getBestWinPad()
-            if winPad then
-                createWaypoint(winPad, "🌟 WIN PAD 🌟", Color3.fromRGB(255, 215, 0))
-            end
-        end)
-    end
-
-    -- Wires waypoints loader loop into background streamer caching loop
-    task.spawn(function()
-        while true do
-            task.wait(5)
-            if showWaypoints then
-                pcall(refreshWaypoints)
-            end
-        end
-    end)
 
     -- ========================================================================
     -- ⚡ AUTOMATION BACKGROUND WORKERS
@@ -1042,16 +1000,6 @@ local success, fatalErr = pcall(function()
                 end)
             end
         end
-    end)
-
-    -- Anti-AFK
-    pcall(function()
-        LocalPlayer.Idled:Connect(function()
-            pcall(function()
-                VirtualUser:CaptureController()
-                VirtualUser:ClickButton2(Vector2.new(0, 0))
-            end)
-        end)
     end)
 
     -- ========================================================================
@@ -1951,15 +1899,6 @@ end)()
 
     Panel:AddToggle("Infinite Jump", false, function(state)
         _G.InfJump = state
-    end)
-
-    Panel:AddToggle("Show Stage Waypoints (ESP)", false, function(state)
-        showWaypoints = state
-        if state then
-            pcall(refreshWaypoints)
-        else
-            pcall(clearWaypoints)
-        end
     end)
 
     AjizLib:Notify("Ajiz Hub", "Speed Monkey Escape Script Upgraded!", 3)
