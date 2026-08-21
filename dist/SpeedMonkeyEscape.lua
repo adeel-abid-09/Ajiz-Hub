@@ -274,7 +274,7 @@ RunService.Stepped:Connect(function()
     end
 end)
 
--- Safe Linear Teleport/Tween Handler (Prevents Speed Kicks)
+-- Safe Linear Teleport/Tween Handler (Prevents Speed Kicks and Falls)
 local function tweenToPart(part, speed)
     speed = speed or 100
     local char = LocalPlayer.Character
@@ -298,20 +298,20 @@ local function tweenToPart(part, speed)
         conn:Disconnect()
     end)
     
-    EnableFloat(root)
+    root.Anchored = true -- Anchor to prevent falling down into void due to noclip
     tween:Play()
     
     while not completed and (_G.AutoWin or _G.AutoTrain) do
         task.wait(0.05)
     end
     
+    root.Anchored = false -- Unanchor immediately after completion
+    
     if not (_G.AutoWin or _G.AutoTrain) then
         tween:Cancel()
-        DisableFloat()
         return false
     end
     
-    DisableFloat()
     return true
 end
 
@@ -469,7 +469,7 @@ task.spawn(function()
                         tool:Activate()
                     end
                     
-                    -- Treadmill physical teleport & walk simulation
+                    -- Treadmill physical teleport
                     local treadmill = findTreadmill()
                     local char = LocalPlayer.Character
                     local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -480,11 +480,7 @@ task.spawn(function()
                             task.wait(0.1)
                             triggerPrompt(treadmill) -- Trigger proximity prompt if any
                         end
-                        
-                        local hum = char:FindFirstChildOfClass("Humanoid")
-                        if hum then
-                            hum:Move(Vector3.new(0, 0, -1), true)
-                        end
+                        -- Standing still on treadmill is required. Move input removed to prevent sliding off.
                     end
                 end
             end)
@@ -507,7 +503,7 @@ task.spawn(function()
                         for _, cp in ipairs(checkpoints) do
                             if not _G.AutoWin then break end
                             
-                            -- Move smoothly to checkpoint to prevent speed kick
+                            -- Move smoothly to checkpoint using safe anchored linear tween
                             local reached = tweenToPart(cp, 150)
                             if reached then
                                 touchPart(cp)
