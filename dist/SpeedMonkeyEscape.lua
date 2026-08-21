@@ -399,27 +399,60 @@ local function getWinValue(part)
     return val
 end
 
+-- Strict Win Pad validation to exclude VIP pads and Speed multiplier platforms
+local function isRealWinPad(part)
+    local hasWinKeyword = false
+    local hasExcludeKeyword = false
+    
+    local function checkText(text)
+        local t = string.lower(text)
+        -- Must contain Win keyword
+        if t:find("win") then
+            hasWinKeyword = true
+        end
+        -- Strictly exclude VIP, gamepass, speed training multipliers, level zones
+        if t:find("speed") or t:find("multiplier") or t:find("x") or t:find("train") or 
+           t:find("rebirth") or t:find("level") or t:find("jump") or t:find("vip") or 
+           t:find("robux") or t:find("pass") or t:find("premium") or t:find("gp") then
+            hasExcludeKeyword = true
+        end
+    end
+    
+    checkText(part.Name)
+    
+    for _, child in ipairs(part:GetDescendants()) do
+        if child:IsA("TextLabel") or child.ClassName:find("Text") then
+            pcall(function()
+                if child.Text then
+                    checkText(child.Text)
+                end
+            end)
+        end
+    end
+    
+    if part.Parent then
+        checkText(part.Parent.Name)
+        for _, child in ipairs(part.Parent:GetChildren()) do
+            if child:IsA("TextLabel") or child.ClassName:find("Text") then
+                pcall(function()
+                    if child.Text then
+                        checkText(child.Text)
+                    end
+                end)
+            end
+        end
+    end
+    
+    return hasWinKeyword and not hasExcludeKeyword
+end
+
 -- Scan Workspace to locate all physical Win Pads
 local function findWinPads()
     local pads = {}
     pcall(function()
         for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj:IsA("BasePart") then
-                local lname = string.lower(obj.Name)
-                local pname = obj.Parent and string.lower(obj.Parent.Name) or ""
-                
-                -- Check if part name or parent name matches Win keywords
-                if lname:find("win") or lname:find("victory") or pname:find("win") or pname:find("victory") then
-                    table.insert(pads, obj)
-                else
-                    -- Check if it contains BillboardGuis indicating Win payouts
-                    for _, child in ipairs(obj:GetChildren()) do
-                        if child:IsA("BillboardGui") or child:IsA("SurfaceGui") then
-                            table.insert(pads, obj)
-                            break
-                        end
-                    end
-                end
+            if obj:IsA("BasePart") and isRealWinPad(obj) then
+                table.insert(pads, obj)
             end
         end
     end)
