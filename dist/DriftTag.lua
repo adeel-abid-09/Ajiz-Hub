@@ -123,6 +123,8 @@ local AjizLib = (function()
     • Clean Checkbox-Only Panel (No sliders, No number inputs, Zero clutter)
     • Header & Footer in Glowing Sky Blue
     • Mobile Draggable "AJ" Toggle Icon & PC Mouse Support
+    • Dynamic Name Randomization & Anti-Cheat Hidden CoreGui Parent
+    • Robust Executor Polyfills and Compatibility Wrappers
 --]]
 
 local TweenService = game:GetService("TweenService")
@@ -152,6 +154,18 @@ end
 
 local AjizLib = {}
 AjizLib.__index = AjizLib
+
+-- Dynamic Name Generator (Prevents name-based anti-cheat scans)
+local function GenerateRandomName(length)
+    length = length or math.random(10, 16)
+    local chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    local name = ""
+    for i = 1, length do
+        local randIndex = math.random(1, #chars)
+        name = name .. string.sub(chars, randIndex, randIndex)
+    end
+    return name
+end
 
 -- Safe Container Selector
 local function GetGuiContainer()
@@ -253,6 +267,47 @@ local function GetDeviceHWID()
     return hwid
 end
 
+-- ========================================================================
+-- 🛡️ EXECUTOR COMPATIBILITY WRAPPERS & POLYFILLS
+-- ========================================================================
+
+function AjizLib:SafeWriteFile(filename, content)
+    if writefile then
+        local success, err = pcall(function()
+            writefile(filename, content)
+        end)
+        return success, err
+    end
+    return false, "writefile not supported"
+end
+
+function AjizLib:SafeReadFile(filename)
+    if readfile then
+        local success, content = pcall(readfile, filename)
+        if success then return content end
+    end
+    return nil
+end
+
+function AjizLib:SafeIsFile(filename)
+    if isfile then
+        local success, exists = pcall(isfile, filename)
+        return success and exists
+    end
+    return false
+end
+
+function AjizLib:SafeSetClipboard(text)
+    if setclipboard then
+        pcall(setclipboard, text)
+    elseif toclipboard then
+        pcall(toclipboard, text)
+    else
+        print("[AJIZ HUB CLIPBOARD]: " .. tostring(text))
+        AjizLib:Notify("Clipboard Warning", "setclipboard not supported. Key output printed to console/chat.", 5)
+    end
+end
+
 -- Notification Helper
 function AjizLib:Notify(title, message, duration)
     duration = duration or 4
@@ -265,18 +320,6 @@ function AjizLib:Notify(title, message, duration)
     end)
 end
 
---[[
-    ========================================================================
-    🔑 KEY SYSTEM BYPASSED
-    ========================================================================
---]]
-function AjizLib:ValidateKey(config)
-    config = config or {}
-    AjizLib:Notify("Ajiz Hub", "Key System Bypassed! Loading script...", 3)
-    if config.OnSuccess then
-        config.OnSuccess()
-    end
-end
 
 --[[
     ========================================================================
@@ -292,14 +335,25 @@ function AjizLib:CreateWindow(config)
 
     local container = GetGuiContainer()
 
-    if container:FindFirstChild("AjizHub_Panel") then
-        container.AjizHub_Panel:Destroy()
-    end
+    -- Attribute-based safe cleanup (destroys old panels even if names are randomized)
+    pcall(function()
+        for _, child in ipairs(container:GetChildren()) do
+            if child:IsA("ScreenGui") and child:GetAttribute("AjizHubPanel") then
+                child:Destroy()
+            end
+        end
+    end)
 
     local ScreenGui = Instance.new("ScreenGui")
-    ScreenGui.Name = "AjizHub_Panel"
+    ScreenGui.Name = GenerateRandomName()
+    ScreenGui:SetAttribute("AjizHubPanel", true)
     ScreenGui.ResetOnSpawn = false
-    if syn and syn.protect_gui then pcall(function() syn.protect_gui(ScreenGui) end) end
+
+    -- Safe protect GUI call
+    if syn and syn.protect_gui then 
+        pcall(function() syn.protect_gui(ScreenGui) end) 
+    end
+    
     local success = pcall(function()
         ScreenGui.Parent = container
     end)
@@ -311,7 +365,7 @@ function AjizLib:CreateWindow(config)
 
     -- Mobile Draggable Toggle Button
     local MobileToggle = Instance.new("ImageButton")
-    MobileToggle.Name = "MobileToggle"
+    MobileToggle.Name = GenerateRandomName()
     MobileToggle.Size = UDim2.new(0, 40, 0, 40)
     MobileToggle.Position = UDim2.new(0, 15, 0.45, 0)
     MobileToggle.BackgroundColor3 = Theme.Header
@@ -325,6 +379,7 @@ function AjizLib:CreateWindow(config)
     MobileStroke.Thickness = 1.2
 
     local MobileLabel = Instance.new("TextLabel", MobileToggle)
+    MobileLabel.Name = GenerateRandomName()
     MobileLabel.Size = UDim2.new(1, 0, 1, 0)
     MobileLabel.BackgroundTransparency = 1
     MobileLabel.Font = Theme.Font
@@ -338,10 +393,11 @@ function AjizLib:CreateWindow(config)
     local isMin = false
     local isVis = true
     local expandedHeight = 120
+    local TeleportFlyout = nil  -- Lexically scoped reference
 
     -- Main Panel Frame
     local MainFrame = Instance.new("Frame")
-    MainFrame.Name = "MainFrame"
+    MainFrame.Name = GenerateRandomName()
     MainFrame.Size = UDim2.new(0, 240, 0, 120)
     MainFrame.Position = UDim2.new(0.5, -120, 0.4, -60)
     MainFrame.BackgroundColor3 = Theme.Background
@@ -356,13 +412,14 @@ function AjizLib:CreateWindow(config)
 
     -- Header
     local Header = Instance.new("Frame")
-    Header.Name = "Header"
+    Header.Name = GenerateRandomName()
     Header.Size = UDim2.new(1, 0, 0, 34)
     Header.BackgroundColor3 = Theme.Header
     Header.BorderSizePixel = 0
     Header.Parent = MainFrame
 
     local TitleLabel = Instance.new("TextLabel")
+    TitleLabel.Name = GenerateRandomName()
     TitleLabel.Size = UDim2.new(1, -38, 1, 0)
     TitleLabel.Position = UDim2.new(0, 10, 0, 0)
     TitleLabel.BackgroundTransparency = 1
@@ -374,6 +431,7 @@ function AjizLib:CreateWindow(config)
     TitleLabel.Parent = Header
 
     local MinBtn = Instance.new("TextButton")
+    MinBtn.Name = GenerateRandomName()
     MinBtn.Size = UDim2.new(0, 26, 0, 26)
     MinBtn.Position = UDim2.new(1, -32, 0.5, -13)
     MinBtn.BackgroundColor3 = Color3.fromRGB(28, 32, 44)
@@ -390,7 +448,7 @@ function AjizLib:CreateWindow(config)
 
     -- Scrollable Features List
     local ScrollBody = Instance.new("ScrollingFrame")
-    ScrollBody.Name = "ScrollBody"
+    ScrollBody.Name = GenerateRandomName()
     ScrollBody.Size = UDim2.new(1, -12, 0, 60)
     ScrollBody.Position = UDim2.new(0, 6, 0, 38)
     ScrollBody.BackgroundTransparency = 1
@@ -407,6 +465,7 @@ function AjizLib:CreateWindow(config)
 
     -- Footer
     local Footer = Instance.new("Frame")
+    Footer.Name = GenerateRandomName()
     Footer.Size = UDim2.new(1, 0, 0, 22)
     Footer.Position = UDim2.new(0, 0, 1, -22)
     Footer.BackgroundColor3 = Theme.Header
@@ -414,6 +473,7 @@ function AjizLib:CreateWindow(config)
     Footer.Parent = MainFrame
 
     local FooterLabel = Instance.new("TextLabel", Footer)
+    FooterLabel.Name = GenerateRandomName()
     FooterLabel.Size = UDim2.new(1, 0, 1, 0)
     FooterLabel.BackgroundTransparency = 1
     FooterLabel.Font = Theme.Font
@@ -446,9 +506,8 @@ function AjizLib:CreateWindow(config)
                 Size = UDim2.new(0, 240, 0, 34)
             }):Play()
             MinBtn.Text = "▼"
-            local flyout = MainFrame:FindFirstChild("TeleportFlyout")
-            if flyout then
-                flyout.Visible = false
+            if TeleportFlyout then
+                TeleportFlyout.Visible = false
             end
         else
             TweenService:Create(MainFrame, TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
@@ -469,7 +528,7 @@ function AjizLib:CreateWindow(config)
 
         -- Main Container Frame
         local ItemFrame = Instance.new("Frame")
-        ItemFrame.Name = title .. "_Container"
+        ItemFrame.Name = GenerateRandomName()
         ItemFrame.Size = UDim2.new(1, 0, 0, 36)
         ItemFrame.BackgroundColor3 = Theme.ItemBg
         ItemFrame.BorderSizePixel = 0
@@ -481,6 +540,7 @@ function AjizLib:CreateWindow(config)
         ItemStroke.Thickness = 0.8
 
         local Title = Instance.new("TextLabel", ItemFrame)
+        Title.Name = GenerateRandomName()
         Title.Size = UDim2.new(1, -44, 1, 0)
         Title.Position = UDim2.new(0, 10, 0, 0)
         Title.BackgroundTransparency = 1
@@ -493,6 +553,7 @@ function AjizLib:CreateWindow(config)
 
         -- Square Checkbox Box
         local Box = Instance.new("Frame", ItemFrame)
+        Box.Name = GenerateRandomName()
         Box.Size = UDim2.new(0, 20, 0, 20)
         Box.Position = UDim2.new(1, -30, 0.5, -10)
         Box.BackgroundColor3 = state and Theme.CheckActive or Theme.CheckInactive
@@ -501,6 +562,7 @@ function AjizLib:CreateWindow(config)
         Instance.new("UICorner", Box).CornerRadius = UDim.new(0, 3)
 
         local Checkmark = Instance.new("TextLabel", Box)
+        Checkmark.Name = GenerateRandomName()
         Checkmark.Size = UDim2.new(1, 0, 1, 0)
         Checkmark.BackgroundTransparency = 1
         Checkmark.Font = Theme.Font
@@ -512,7 +574,7 @@ function AjizLib:CreateWindow(config)
 
         -- Transparent Click/Touch Button Overlay (On top of everything)
         local ItemBtn = Instance.new("TextButton")
-        ItemBtn.Name = title .. "_ItemBtn"
+        ItemBtn.Name = GenerateRandomName()
         ItemBtn.Size = UDim2.new(1, 0, 1, 0)
         ItemBtn.BackgroundTransparency = 1
         ItemBtn.Text = ""
@@ -556,7 +618,7 @@ function AjizLib:CreateWindow(config)
 
         -- Main Container Frame
         local ItemFrame = Instance.new("Frame")
-        ItemFrame.Name = title .. "_Container"
+        ItemFrame.Name = GenerateRandomName()
         ItemFrame.Size = UDim2.new(1, 0, 0, 36)
         ItemFrame.BackgroundColor3 = Theme.ItemBg
         ItemFrame.BorderSizePixel = 0
@@ -568,6 +630,7 @@ function AjizLib:CreateWindow(config)
         ItemStroke.Thickness = 0.8
 
         local Title = Instance.new("TextLabel", ItemFrame)
+        Title.Name = GenerateRandomName()
         Title.Size = UDim2.new(1, -44, 1, 0)
         Title.Position = UDim2.new(0, 10, 0, 0)
         Title.BackgroundTransparency = 1
@@ -579,6 +642,7 @@ function AjizLib:CreateWindow(config)
         Title.ZIndex = 2
 
         local Arrow = Instance.new("TextLabel", ItemFrame)
+        Arrow.Name = GenerateRandomName()
         Arrow.Size = UDim2.new(0, 16, 0, 16)
         Arrow.Position = UDim2.new(1, -30, 0.5, -8)
         Arrow.BackgroundTransparency = 1
@@ -590,7 +654,7 @@ function AjizLib:CreateWindow(config)
 
         -- Transparent Click/Touch Button Overlay (On top of everything)
         local ItemBtn = Instance.new("TextButton")
-        ItemBtn.Name = title .. "_ItemBtn"
+        ItemBtn.Name = GenerateRandomName()
         ItemBtn.Size = UDim2.new(1, 0, 1, 0)
         ItemBtn.BackgroundTransparency = 1
         ItemBtn.Text = ""
@@ -625,10 +689,9 @@ function AjizLib:CreateWindow(config)
     function Panel:AddTeleportButton(title, items)
         items = items or {}
 
-        local TeleportFlyout = MainFrame:FindFirstChild("TeleportFlyout")
         if not TeleportFlyout then
             TeleportFlyout = Instance.new("Frame")
-            TeleportFlyout.Name = "TeleportFlyout"
+            TeleportFlyout.Name = GenerateRandomName()
             TeleportFlyout.Size = UDim2.new(0, 200, 0, 290)
             TeleportFlyout.Position = UDim2.new(1, 8, 0, 0)
             TeleportFlyout.BackgroundColor3 = Theme.Background
@@ -640,11 +703,13 @@ function AjizLib:CreateWindow(config)
 
             -- Flyout Header
             local FlyHeader = Instance.new("Frame", TeleportFlyout)
+            FlyHeader.Name = GenerateRandomName()
             FlyHeader.Size = UDim2.new(1, 0, 0, 34)
             FlyHeader.BackgroundColor3 = Theme.Header
             FlyHeader.BorderSizePixel = 0
 
             local FlyTitle = Instance.new("TextLabel", FlyHeader)
+            FlyTitle.Name = GenerateRandomName()
             FlyTitle.Size = UDim2.new(1, -30, 1, 0)
             FlyTitle.Position = UDim2.new(0, 10, 0, 0)
             FlyTitle.BackgroundTransparency = 1
@@ -655,6 +720,7 @@ function AjizLib:CreateWindow(config)
             FlyTitle.TextXAlignment = Enum.TextXAlignment.Left
 
             local FlyClose = Instance.new("TextButton", FlyHeader)
+            FlyClose.Name = GenerateRandomName()
             FlyClose.Size = UDim2.new(0, 24, 0, 24)
             FlyClose.Position = UDim2.new(1, -28, 0.5, -12)
             FlyClose.BackgroundColor3 = Color3.fromRGB(35, 20, 25)
@@ -672,7 +738,7 @@ function AjizLib:CreateWindow(config)
 
             -- Flyout Island Scroll List
             local IslandScroll = Instance.new("ScrollingFrame", TeleportFlyout)
-            IslandScroll.Name = "IslandScroll"
+            IslandScroll.Name = GenerateRandomName()
             IslandScroll.Size = UDim2.new(1, -10, 1, -40)
             IslandScroll.Position = UDim2.new(0, 5, 0, 36)
             IslandScroll.BackgroundTransparency = 1
@@ -689,6 +755,7 @@ function AjizLib:CreateWindow(config)
             -- Populate buttons
             for _, item in ipairs(items) do
                 local IslandBtn = Instance.new("TextButton", IslandScroll)
+                IslandBtn.Name = GenerateRandomName()
                 IslandBtn.Size = UDim2.new(1, 0, 0, 32)
                 IslandBtn.BackgroundColor3 = Theme.ItemBg
                 IslandBtn.BorderSizePixel = 0
@@ -713,7 +780,7 @@ function AjizLib:CreateWindow(config)
         end
 
         local ItemFrame = Instance.new("Frame")
-        ItemFrame.Name = title .. "_Container"
+        ItemFrame.Name = GenerateRandomName()
         ItemFrame.Size = UDim2.new(1, 0, 0, 36)
         ItemFrame.BackgroundColor3 = Theme.ItemBg
         ItemFrame.BorderSizePixel = 0
@@ -725,6 +792,7 @@ function AjizLib:CreateWindow(config)
         ItemStroke.Thickness = 0.8
 
         local Title = Instance.new("TextLabel", ItemFrame)
+        Title.Name = GenerateRandomName()
         Title.Size = UDim2.new(1, -44, 1, 0)
         Title.Position = UDim2.new(0, 10, 0, 0)
         Title.BackgroundTransparency = 1
@@ -736,6 +804,7 @@ function AjizLib:CreateWindow(config)
         Title.ZIndex = 2
 
         local Arrow = Instance.new("TextLabel", ItemFrame)
+        Arrow.Name = GenerateRandomName()
         Arrow.Size = UDim2.new(0, 16, 0, 16)
         Arrow.Position = UDim2.new(1, -30, 0.5, -8)
         Arrow.BackgroundTransparency = 1
@@ -747,7 +816,7 @@ function AjizLib:CreateWindow(config)
 
         -- Transparent Click/Touch Button Overlay (On top of everything)
         local ItemBtn = Instance.new("TextButton")
-        ItemBtn.Name = title .. "_ItemBtn"
+        ItemBtn.Name = GenerateRandomName()
         ItemBtn.Size = UDim2.new(1, 0, 1, 0)
         ItemBtn.BackgroundTransparency = 1
         ItemBtn.Text = ""
@@ -756,7 +825,9 @@ function AjizLib:CreateWindow(config)
         ItemBtn.Parent = ItemFrame
 
         ItemBtn.Activated:Connect(function()
-            TeleportFlyout.Visible = not TeleportFlyout.Visible
+            if TeleportFlyout then
+                TeleportFlyout.Visible = not TeleportFlyout.Visible
+            end
         end)
 
         ItemBtn.MouseEnter:Connect(function()
@@ -780,7 +851,7 @@ function AjizLib:CreateWindow(config)
 
         -- Main Container Frame
         local ItemFrame = Instance.new("Frame")
-        ItemFrame.Name = title .. "_Container"
+        ItemFrame.Name = GenerateRandomName()
         ItemFrame.Size = UDim2.new(1, 0, 0, 42)
         ItemFrame.BackgroundColor3 = Theme.ItemBg
         ItemFrame.BorderSizePixel = 0
@@ -792,6 +863,7 @@ function AjizLib:CreateWindow(config)
         ItemStroke.Thickness = 0.8
 
         local Title = Instance.new("TextLabel", ItemFrame)
+        Title.Name = GenerateRandomName()
         Title.Size = UDim2.new(1, -20, 0, 20)
         Title.Position = UDim2.new(0, 10, 0, 2)
         Title.BackgroundTransparency = 1
@@ -803,7 +875,7 @@ function AjizLib:CreateWindow(config)
         Title.ZIndex = 2
 
         local Track = Instance.new("TextButton", ItemFrame)
-        Track.Name = "Track"
+        Track.Name = GenerateRandomName()
         Track.Size = UDim2.new(1, -20, 0, 4)
         Track.Position = UDim2.new(0, 10, 0, 26)
         Track.BackgroundColor3 = Theme.CheckInactive
@@ -814,6 +886,7 @@ function AjizLib:CreateWindow(config)
         Instance.new("UICorner", Track).CornerRadius = UDim.new(0, 2)
 
         local Fill = Instance.new("Frame", Track)
+        Fill.Name = GenerateRandomName()
         Fill.Size = UDim2.new(0, 0, 1, 0)
         Fill.BackgroundColor3 = Theme.Accent
         Fill.BorderSizePixel = 0
@@ -821,6 +894,7 @@ function AjizLib:CreateWindow(config)
         Instance.new("UICorner", Fill).CornerRadius = UDim.new(0, 2)
 
         local Knob = Instance.new("Frame", Fill)
+        Knob.Name = GenerateRandomName()
         Knob.Size = UDim2.new(0, 8, 0, 8)
         Knob.Position = UDim2.new(1, -4, 0.5, -4)
         Knob.BackgroundColor3 = Theme.Accent
@@ -853,6 +927,7 @@ function AjizLib:CreateWindow(config)
             local trackWidth = Track.AbsoluteSize.X
             if trackWidth > 0 then
                 local relativeX = math.clamp(input.Position.X - Track.AbsolutePosition.X, 0, trackWidth)
+                relativeX = math.max(0, math.min(relativeX, trackWidth))
                 local percentage = relativeX / trackWidth
                 local newValue = min + (max - min) * percentage
                 update(newValue, false)

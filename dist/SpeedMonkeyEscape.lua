@@ -1,6 +1,6 @@
 --[[
     ========================================================================
-    ⚡ AJIZ HUB - FIND THE EGG (MODULAR GAME LOGIC) ⚡
+    ⚡ AJIZ HUB - SPEED MONKEY ESCAPE (MODULAR GAME LOGIC) ⚡
     ========================================================================
 --]]
 
@@ -10,8 +10,8 @@ local HttpService = game:GetService("HttpService")
 local Players = game:GetService("Players")
 local Workspace = game:GetService("Workspace")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local VirtualUser = game:GetService("VirtualUser")
 local RunService = game:GetService("RunService")
+local VirtualUser = game:GetService("VirtualUser")
 
 -- Safe CoreGui Retrieval
 local CoreGui = nil
@@ -19,19 +19,44 @@ pcall(function()
     CoreGui = game:GetService("CoreGui")
 end)
 
--- Safe Player Acquisition
+-- Safe Player Acquisition (No infinite yield)
 local LocalPlayer = Players.LocalPlayer
 if not LocalPlayer then
-    repeat task.wait() LocalPlayer = Players.LocalPlayer until LocalPlayer
+    local start = os.clock()
+    repeat 
+        task.wait(0.1) 
+        LocalPlayer = Players.LocalPlayer 
+    until LocalPlayer or (os.clock() - start) > 10
+end
+if not LocalPlayer then
+    LocalPlayer = Players.PlayerAdded:Wait()
 end
 
 -- Global States
 _G.AutoTrain = false
-_G.AutoHatch = false
-_G.AutoCollectEggs = false
-_G.NoclipActive = false
-_G.SpeedBoost = false
-_G.NoclipConnection = nil
+_G.AutoWin = false
+_G.AutoRebirth = false
+
+_G.TrainRemote = nil
+_G.WinRemote = nil
+_G.RebirthRemote = nil
+
+-- Auto-Detect Remotes
+local function detectGameRemotes()
+    for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+            local lname = string.lower(obj.Name)
+            if (string.find(lname, "train") or string.find(lname, "treadmill") or string.find(lname, "speed") or string.find(lname, "click")) and not string.find(lname, "buy") and not string.find(lname, "shop") then
+                _G.TrainRemote = obj
+            elseif (string.find(lname, "win") or string.find(lname, "finish") or string.find(lname, "obby") or string.find(lname, "gate")) and not string.find(lname, "buy") then
+                _G.WinRemote = obj
+            elseif string.find(lname, "rebirth") or string.find(lname, "prestige") then
+                _G.RebirthRemote = obj
+            end
+        end
+    end
+end
+pcall(detectGameRemotes)
 
 -- In-game Notification Helper
 local function Notify(title, msg, dur)
@@ -45,204 +70,144 @@ local function Notify(title, msg, dur)
     end)
 end
 
--- ========================================================================
--- 🧠 GAME LOGIC HELPERS
--- ========================================================================
-
--- Helper function to find in-game speed stat value
-local function getInGameSpeed()
-    local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
-    if leaderstats then
-        local stat = leaderstats:FindFirstChild("Speed") or leaderstats:FindFirstChild("WalkSpeed") or leaderstats:FindFirstChild("Clicks")
-        if stat and (stat:IsA("NumberValue") or stat:IsA("IntValue") or stat:IsA("DoubleConstrainedValue")) then
-            return tonumber(stat.Value)
-        end
+-- Floating/Noclip Core for safe teleports
+local FloatBody = nil
+local function EnableFloat(root)
+    if not FloatBody or not FloatBody.Parent then
+        FloatBody = Instance.new("BodyVelocity")
+        -- Randomized name to bypass simple detection checks
+        FloatBody.Name = "AjizV_" .. tostring(math.random(100, 999))
+        FloatBody.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+        FloatBody.Velocity = Vector3.zero
+        FloatBody.Parent = root
     end
-    for _, obj in ipairs(LocalPlayer:GetDescendants()) do
-        if (obj:IsA("NumberValue") or obj:IsA("IntValue")) and (obj.Name == "Speed" or obj.Name == "WalkSpeed") then
-            return tonumber(obj.Value)
-        end
-    end
-    return nil
 end
 
--- Helper function to find the Cauldron Part (Deposit Point)
-local function getCauldronPart()
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") then
-            local name = obj.Name:lower()
-            if name == "cauldron" or name:find("cauldron") then
-                if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
-                    return obj
+local function DisableFloat()
+    if FloatBody then
+        FloatBody:Destroy()
+        FloatBody = nil
+    end
+end
+
+-- Continuous Noclip
+RunService.Stepped:Connect(function()
+    if _G.AutoTrain or _G.AutoWin then
+        pcall(function()
+            local char = LocalPlayer.Character
+            if char then
+                for _, part in ipairs(char:GetDescendants()) do
+                    if part:IsA("BasePart") and part.CanCollide then
+                        part.CanCollide = false
+                    end
                 end
             end
-        end
-    end
-    return nil
-end
-
--- Helper function to find Cauldron/Village CFrame
-local function getVillageCFrame()
-    local cauldron = getCauldronPart()
-    if cauldron then
-        return cauldron.CFrame
-    end
-    
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        local name = obj.Name:lower()
-        if name == "village" or name:find("spawnpoint") or name:find("spawn") then
-            if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
-                if obj:IsA("BasePart") then
-                    return obj.CFrame
-                elseif obj:IsA("Model") then
-                    return obj:GetPivot()
-                end
-            end
-        end
-    end
-    return CFrame.new(0, 10, 0)
-end
-
--- Helper function to automatically equip the Treadmill tool from Backpack
-local function equipTreadmillTool()
-    local char = LocalPlayer.Character
-    local humanoid = char and char:FindFirstChildWhichIsA("Humanoid")
-    if humanoid then
-        local equipped = char:FindFirstChildWhichIsA("Tool")
-        if equipped and (equipped.Name:lower():find("treadmill") or equipped.Name:lower():find("train") or equipped.Name:lower():find("run")) then
-            return true
-        end
-        for _, item in ipairs(LocalPlayer.Backpack:GetChildren()) do
-            if item:IsA("Tool") and (item.Name:lower():find("treadmill") or item.Name:lower():find("run") or item.Name:lower():find("speed") or item.Name:lower():find("train")) then
-                humanoid:EquipTool(item)
-                return true
-            end
-        end
-    end
-    return false
-end
-
--- Helper function to find the absolute BEST egg currently spawned on the map
-local function getBestEgg()
-    local eggs = {}
-    local char = LocalPlayer.Character
-    
-    for _, obj in ipairs(workspace:GetDescendants()) do
-        if obj:IsA("BasePart") and obj.Name:lower():find("egg") and not obj:IsDescendantOf(char) and not obj:IsDescendantOf(Players) then
-            local name = obj.Name:lower()
-            local priority = 100
-            
-            if name:find("colossal") then
-                priority = 1
-            elseif name:find("giant") then
-                priority = 2
-            elseif name:find("legendary") then
-                priority = 3
-            elseif name:find("epic") then
-                priority = 4
-            elseif name:find("rare") then
-                priority = 5
-            elseif name:find("uncommon") then
-                priority = 6
-            elseif name:find("common") then
-                priority = 7
-            end
-            
-            table.insert(eggs, {Part = obj, Priority = priority})
-        end
-    end
-    
-    if #eggs > 0 then
-        table.sort(eggs, function(a, b)
-            return a.Priority < b.Priority
         end)
-        return eggs[1].Part
-    end
-    return nil
-end
-
--- Teleport Actions
-local function TeleportToBestEgg()
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if root then
-        local targetEgg = getBestEgg()
-        if targetEgg then
-            root.CFrame = targetEgg.CFrame * CFrame.new(0, 1.5, 0)
-            Notify("Ajiz Hub", "Teleported to: " .. targetEgg.Name, 2)
-        else
-            Notify("Ajiz Hub", "No Eggs Found on Map!", 2)
-        end
-    end
-end
-
-local function TeleportToBase()
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if root then
-        local cauldron = getCauldronPart()
-        if cauldron then
-            root.CFrame = cauldron.CFrame * CFrame.new(0, 3, 0)
-            task.wait(0.1)
-            pcall(function()
-                if firetouchinterest then
-                    firetouchinterest(cauldron, root, 0)
-                    task.wait(0.05)
-                    firetouchinterest(cauldron, root, 1)
-                end
-            end)
-            Notify("Ajiz Hub", "Deposited Eggs at Cauldron Base!", 2)
-        else
-            root.CFrame = getVillageCFrame() * CFrame.new(0, 3, 0)
-            Notify("Ajiz Hub", "Teleported to Village Spawn!", 2)
-        end
-    end
-end
-
--- ========================================================================
--- ⚡ ADVANCED METAMETHOD HOOK (Traces and locks remote names)
--- ========================================================================
-task.spawn(function()
-    local success, mt = pcall(function() return getrawmetatable(game) end)
-    if success and mt then
-        local oldNamecall = mt.__namecall
-        setreadonly(mt, false)
-
-        mt.__namecall = newcclosure(function(self, ...)
-            local method = getnamecallmethod()
-            local args = {...}
-            
-            if method == "FireServer" or method == "InvokeServer" then
-                local name = string.lower(self.Name)
-                if string.find(name, "train") or string.find(name, "click") or string.find(name, "speed") or string.find(name, "run") then
-                    _G.TrainRemote = self
-                    _G.TrainArgs = args
-                elseif string.find(name, "hatch") or string.find(name, "buy") or string.find(name, "open") or string.find(name, "cauldron") then
-                    _G.HatchRemote = self
-                    _G.HatchArgs = args
-                end
-            end
-            
-            return oldNamecall(self, ...)
-        end)
-        setreadonly(mt, true)
     end
 end)
 
--- WalkSpeed Auto Sync Loop
+-- Safe Teleport / Tween Handler
+local currentTween = nil
+local function SafeTeleport(targetCFrame)
+    local char = LocalPlayer.Character
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    if not root then return end
+
+    if currentTween then
+        currentTween:Cancel()
+        currentTween = nil
+    end
+
+    EnableFloat(root)
+    
+    local dist = (root.Position - targetCFrame.Position).Magnitude
+    if dist < 45 then
+        root.CFrame = targetCFrame
+        DisableFloat()
+        return
+    end
+
+    -- Linear Tween to target destination to prevent speed bans
+    local speed = 250
+    local tweenInfo = TweenInfo.new(dist / speed, Enum.EasingStyle.Linear)
+    currentTween = TweenService:Create(root, tweenInfo, { CFrame = targetCFrame })
+    currentTween:Play()
+    currentTween.Completed:Connect(function()
+        DisableFloat()
+        currentTween = nil
+    end)
+end
+
+-- Workspace Object Finder (Scans dynamically for Treadmills and Finish lines)
+local function findTreadmill()
+    local target = nil
+    pcall(function()
+        -- 1. Search by Name keywords in Workspace
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("BasePart") or obj:IsA("Model") then
+                local lname = string.lower(obj.Name)
+                if string.find(lname, "treadmill") or string.find(lname, "train") or string.find(lname, "speedrun") then
+                    if obj:IsA("BasePart") then
+                        target = obj
+                    elseif obj:IsA("Model") then
+                        -- Prioritize interactive parts within the model
+                        target = obj:FindFirstChild("Belt") or obj:FindFirstChild("Run") or obj:FindFirstChild("Platform") or obj:FindFirstChild("Pad") or obj.PrimaryPart or obj:FindFirstChildOfClass("BasePart")
+                    end
+                    if target then break end
+                end
+            end
+        end
+    end)
+    return target
+end
+
+local function findWinPart()
+    local target = nil
+    pcall(function()
+        -- 1. Scan for finish/win checkpoint parts, avoiding false matches like "window"
+        for _, obj in ipairs(workspace:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                local lname = string.lower(obj.Name)
+                if (lname:find("finish") or lname == "win" or lname:find("^win$") or lname:find("win_") or lname:find("winpad") or lname:find("winpart") or lname:find("endpart") or lname:find("checkpoint")) and not obj:IsDescendantOf(LocalPlayer.Character) then
+                    target = obj
+                    break
+                end
+            end
+        end
+    end)
+    return target
+end
+
+-- ========================================================================
+-- 🏝️ AUTOMATION BACKGROUND WORKERS
+-- ========================================================================
+
+-- 1. Auto Training Worker
 task.spawn(function()
     while true do
-        task.wait(0.8)
-        if _G.AutoTrain or _G.SpeedBoost then
+        task.wait(0.5) -- Safe rate-limit cooldown
+        if _G.AutoTrain then
             pcall(function()
-                local char = LocalPlayer.Character
-                local humanoid = char and char:FindFirstChildWhichIsA("Humanoid")
-                if humanoid then
-                    local currentSpeed = getInGameSpeed()
-                    if currentSpeed and currentSpeed > 16 then
-                        humanoid.WalkSpeed = currentSpeed
-                    elseif _G.SpeedBoost then
-                        humanoid.WalkSpeed = 100
+                -- If Train Remote exists, fire it directly
+                if _G.TrainRemote then
+                    _G.TrainRemote:FireServer()
+                else
+                    -- Fallback: Teleport onto a treadmill and simulate walking/running
+                    local treadmill = findTreadmill()
+                    local char = LocalPlayer.Character
+                    local root = char and char:FindFirstChild("HumanoidRootPart")
+                    if treadmill and root then
+                        -- Only teleport if player has walked off the treadmill to prevent physics resetting
+                        local dist = (root.Position - treadmill.Position).Magnitude
+                        if dist > 8 then
+                            root.CFrame = treadmill.CFrame * CFrame.new(0, 3.5, 0)
+                        end
+                        
+                        -- Simulate walking movement inputs to trigger treadmill speed detection
+                        local hum = char:FindFirstChildOfClass("Humanoid")
+                        if hum then
+                            hum:Move(Vector3.new(0, 0, -1), true)
+                        end
                     end
                 end
             end)
@@ -250,15 +215,32 @@ task.spawn(function()
     end
 end)
 
--- Auto Collect Best Eggs Loop
+-- 2. Auto Win / Obby Finisher Worker
 task.spawn(function()
     while true do
-        task.wait(1.2)
-        if _G.AutoCollectEggs then
+        task.wait(1.5) -- Anti-kick delay limit
+        if _G.AutoWin then
             pcall(function()
-                TeleportToBestEgg()
-                task.wait(0.3)
-                TeleportToBase()
+                if _G.WinRemote then
+                    _G.WinRemote:FireServer()
+                else
+                    local winPart = findWinPart()
+                    if winPart then
+                        SafeTeleport(winPart.CFrame * CFrame.new(0, 2, 0))
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- 3. Auto Rebirth Worker
+task.spawn(function()
+    while true do
+        task.wait(3) -- Rebirth check interval
+        if _G.AutoRebirth and _G.RebirthRemote then
+            pcall(function()
+                _G.RebirthRemote:FireServer()
             end)
         end
     end
@@ -1121,135 +1103,31 @@ return AjizLib
 end)()
 
 local Panel = AjizLib:CreateWindow({
-    Title = "+ AJIZ HUB",
-    GameName = "Find the Egg",
+    Title = "AJIZ HUB",
+    GameName = "Monkey Escape",
     Footer = "Ajiz Hub"
 })
 
--- 1. Auto Train Speed
 Panel:AddToggle("Auto Train Speed", false, function(state)
     _G.AutoTrain = state
-    if state then
-        equipTreadmillTool()
-        
-        -- Virtual Clicker Loop
-        task.spawn(function()
-            pcall(function() VirtualUser:CaptureController() end)
-            while _G.AutoTrain do
-                task.wait(0.01)
-                pcall(function()
-                    VirtualUser:Button1Down(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
-                    task.wait()
-                    VirtualUser:Button1Up(Vector2.new(0, 0), workspace.CurrentCamera.CFrame)
-                end)
-            end
-        end)
-
-        -- Remote & WalkSpeed Syncer
-        task.spawn(function()
-            while _G.AutoTrain do
-                task.wait(0.5)
-                if _G.TrainRemote then
-                    _G.TrainRemote:FireServer(unpack(_G.TrainArgs or {}))
-                end
-                
-                local char = LocalPlayer.Character
-                local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-                if hum then
-                    local cur = getInGameSpeed()
-                    if cur and cur > 16 then hum.WalkSpeed = cur end
-                end
-            end
-        end)
-        Notify("Ajiz Hub", "Auto Train Speed Active!", 2)
-    else
-        Notify("Ajiz Hub", "Auto Train Speed Stopped.", 2)
+    if not state then
+        pcall(DisableFloat)
     end
 end)
 
--- 2. Auto Hatch Eggs
-Panel:AddToggle("Auto Hatch Eggs", false, function(state)
-    _G.AutoHatch = state
-    if state then
-        task.spawn(function()
-            while _G.AutoHatch do
-                task.wait(0.5)
-                if _G.HatchRemote then
-                    _G.HatchRemote:FireServer(unpack(_G.HatchArgs or {}))
-                else
-                    for _, v in ipairs(ReplicatedStorage:GetDescendants()) do
-                        if v:IsA("RemoteEvent") then
-                            local name = string.lower(v.Name)
-                            if name:find("hatch") or name:find("buyegg") or name:find("openegg") or name:find("cauldron") then
-                                v:FireServer()
-                            end
-                        end
-                    end
-                end
-            end
-        end)
-        Notify("Ajiz Hub", "Auto Hatch Active!", 2)
-    else
-        Notify("Ajiz Hub", "Auto Hatch Stopped.", 2)
-    end
-end)
-
--- 3. Auto Farm Eggs (Loop)
-Panel:AddToggle("Auto Farm Eggs (Loop)", false, function(state)
-    _G.AutoCollectEggs = state
-    if state then
-        Notify("Ajiz Hub", "Auto Egg Farm Loop Active!", 2)
-    else
-        Notify("Ajiz Hub", "Auto Egg Farm Loop Stopped.", 2)
-    end
-end)
-
--- 4. Speed Boost (Max)
-Panel:AddToggle("Speed Boost (Max)", false, function(state)
-    _G.SpeedBoost = state
-    local char = LocalPlayer.Character
-    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-    if hum then
-        hum.WalkSpeed = state and 100 or 16
-    end
-end)
-
--- 5. Noclip
-Panel:AddToggle("Noclip", false, function(state)
-    _G.NoclipActive = state
-    if state then
-        _G.NoclipConnection = RunService.Stepped:Connect(function()
-            if _G.NoclipActive and LocalPlayer.Character then
-                for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
-                    if part:IsA("BasePart") then
-                        part.CanCollide = false
-                    end
-                end
-            end
-        end)
-    else
-        if _G.NoclipConnection then
-            _G.NoclipConnection:Disconnect()
-            _G.NoclipConnection = nil
-        end
-        if LocalPlayer.Character then
-            for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = true
-                end
-            end
+Panel:AddToggle("Auto Win (Obby)", false, function(state)
+    _G.AutoWin = state
+    if not state then
+        pcall(DisableFloat)
+        if currentTween then
+            currentTween:Cancel()
+            currentTween = nil
         end
     end
 end)
 
--- 6. TP to Best Egg
-Panel:AddButton("TP to Best Egg", function()
-    TeleportToBestEgg()
+Panel:AddToggle("Auto Rebirth", false, function(state)
+    _G.AutoRebirth = state
 end)
 
--- 7. TP to Base (Deposit)
-Panel:AddButton("TP to Base (Deposit)", function()
-    TeleportToBase()
-end)
-
-Notify("Ajiz Hub", "Find the Egg [Brainrot] Script Loaded!", 3)
+AjizLib:Notify("Ajiz Hub", "Speed Monkey Escape Script Loaded!", 3)
