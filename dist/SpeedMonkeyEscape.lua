@@ -41,6 +41,18 @@ _G.TrainRemote = nil
 _G.WinRemote = nil
 _G.RebirthRemote = nil
 
+-- In-game Notification Helper
+local function Notify(title, msg, dur)
+    dur = dur or 3
+    pcall(function()
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = title,
+            Text = msg,
+            Duration = dur
+        })
+    end)
+end
+
 -- Auto-Detect Remotes
 local function detectGameRemotes()
     for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
@@ -57,18 +69,6 @@ local function detectGameRemotes()
     end
 end
 pcall(detectGameRemotes)
-
--- In-game Notification Helper
-local function Notify(title, msg, dur)
-    dur = dur or 3
-    pcall(function()
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = title,
-            Text = msg,
-            Duration = dur
-        })
-    end)
-end
 
 -- Floating/Noclip Core for safe teleports
 local FloatBody = nil
@@ -139,21 +139,30 @@ local function SafeTeleport(targetCFrame)
 end
 
 -- Workspace Object Finder (Scans dynamically for Treadmills and Finish lines)
+-- Enhanced with multi-level parent context searching (handles folder-grouped objects)
 local function findTreadmill()
     local target = nil
     pcall(function()
-        -- 1. Search by Name keywords in Workspace
         for _, obj in ipairs(workspace:GetDescendants()) do
-            if obj:IsA("BasePart") or obj:IsA("Model") then
+            if obj:IsA("BasePart") then
                 local lname = string.lower(obj.Name)
-                if string.find(lname, "treadmill") or string.find(lname, "train") or string.find(lname, "speedrun") then
-                    if obj:IsA("BasePart") then
-                        target = obj
-                    elseif obj:IsA("Model") then
-                        -- Prioritize interactive parts within the model
-                        target = obj:FindFirstChild("Belt") or obj:FindFirstChild("Run") or obj:FindFirstChild("Platform") or obj:FindFirstChild("Pad") or obj.PrimaryPart or obj:FindFirstChildOfClass("BasePart")
+                local parentName = obj.Parent and string.lower(obj.Parent.Name) or ""
+                local gParentName = obj.Parent and obj.Parent.Parent and string.lower(obj.Parent.Parent.Name) or ""
+                
+                -- Check if part or parent folder contain treadmill/train keywords
+                if lname:find("treadmill") or lname:find("train") or lname:find("run") or
+                   parentName:find("treadmill") or parentName:find("train") or
+                   gParentName:find("treadmill") or gParentName:find("train") then
+                    
+                    if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
+                        -- Prioritize interactive parts within models
+                        if lname == "belt" or lname == "run" or lname == "platform" or lname == "pad" then
+                            target = obj
+                            break
+                        elseif not target then
+                            target = obj
+                        end
                     end
-                    if target then break end
                 end
             end
         end
@@ -164,11 +173,17 @@ end
 local function findWinPart()
     local target = nil
     pcall(function()
-        -- 1. Scan for finish/win checkpoint parts, avoiding false matches like "window"
+        -- Scan checkpoint parts, checking up to 2 parent directories to support nested map structures
         for _, obj in ipairs(workspace:GetDescendants()) do
             if obj:IsA("BasePart") then
                 local lname = string.lower(obj.Name)
-                if (lname:find("finish") or lname == "win" or lname:find("^win$") or lname:find("win_") or lname:find("winpad") or lname:find("winpart") or lname:find("endpart") or lname:find("checkpoint")) and not obj:IsDescendantOf(LocalPlayer.Character) then
+                local parentName = obj.Parent and string.lower(obj.Parent.Name) or ""
+                local gParentName = obj.Parent and obj.Parent.Parent and string.lower(obj.Parent.Parent.Name) or ""
+                
+                if (lname:find("finish") or lname == "win" or lname:find("^win$") or lname:find("win_") or lname:find("winpad") or lname:find("winpart") or lname:find("endpart") or lname:find("checkpoint") or
+                    parentName:find("win") or parentName:find("finish") or parentName:find("stage") or parentName:find("obby") or
+                    gParentName:find("win") or gParentName:find("finish") or gParentName:find("stage") or gParentName:find("obby")) and not obj:IsDescendantOf(LocalPlayer.Character) then
+                    
                     target = obj
                     break
                 end
@@ -177,6 +192,19 @@ local function findWinPart()
     end)
     return target
 end
+
+-- Diagnostic Startup Logs
+pcall(function()
+    print("=== AJIZ HUB S.M.E. DIAGNOSTICS ===")
+    local t = findTreadmill()
+    local w = findWinPart()
+    print("Treadmill found: " .. (t and t:GetFullName() or "None"))
+    print("Win Part found: " .. (w and w:GetFullName() or "None"))
+    print("Train Remote detected: " .. (_G.TrainRemote and _G.TrainRemote:GetFullName() or "None"))
+    print("Win Remote detected: " .. (_G.WinRemote and _G.WinRemote:GetFullName() or "None"))
+    print("Rebirth Remote detected: " .. (_G.RebirthRemote and _G.RebirthRemote:GetFullName() or "None"))
+    print("===================================")
+end)
 
 -- ========================================================================
 -- 🏝️ AUTOMATION BACKGROUND WORKERS
@@ -208,6 +236,8 @@ task.spawn(function()
                         if hum then
                             hum:Move(Vector3.new(0, 0, -1), true)
                         end
+                    else
+                        warn("[AJIZ HUB] Auto-Train enabled but no Treadmill found in workspace.")
                     end
                 end
             end)
@@ -227,6 +257,8 @@ task.spawn(function()
                     local winPart = findWinPart()
                     if winPart then
                         SafeTeleport(winPart.CFrame * CFrame.new(0, 2, 0))
+                    else
+                        warn("[AJIZ HUB] Auto-Win enabled but no Win/Finish Part found in workspace.")
                     end
                 end
             end)
@@ -238,9 +270,13 @@ end)
 task.spawn(function()
     while true do
         task.wait(3) -- Rebirth check interval
-        if _G.AutoRebirth and _G.RebirthRemote then
+        if _G.AutoRebirth then
             pcall(function()
-                _G.RebirthRemote:FireServer()
+                if _G.RebirthRemote then
+                    _G.RebirthRemote:FireServer()
+                else
+                    warn("[AJIZ HUB] Auto-Rebirth enabled but no Rebirth Remote found.")
+                end
             end)
         end
     end
@@ -1110,14 +1146,28 @@ local Panel = AjizLib:CreateWindow({
 
 Panel:AddToggle("Auto Train Speed", false, function(state)
     _G.AutoTrain = state
-    if not state then
+    if state then
+        local t = findTreadmill()
+        if not t and not _G.TrainRemote then
+            Notify("Ajiz Hub", "No Treadmill or Train Remote found! Run/stand near a treadmill or check developer console.", 5)
+        else
+            Notify("Ajiz Hub", "Auto-Train Activated!", 2)
+        end
+    else
         pcall(DisableFloat)
     end
 end)
 
 Panel:AddToggle("Auto Win (Obby)", false, function(state)
     _G.AutoWin = state
-    if not state then
+    if state then
+        local w = findWinPart()
+        if not w and not _G.WinRemote then
+            Notify("Ajiz Hub", "No Finish Line / Win Pad detected! Check developer console.", 5)
+        else
+            Notify("Ajiz Hub", "Auto-Win Activated!", 2)
+        end
+    else
         pcall(DisableFloat)
         if currentTween then
             currentTween:Cancel()
@@ -1128,6 +1178,13 @@ end)
 
 Panel:AddToggle("Auto Rebirth", false, function(state)
     _G.AutoRebirth = state
+    if state then
+        if not _G.RebirthRemote then
+            Notify("Ajiz Hub", "No Rebirth Remote detected. Auto-Rebirth might not work in this game.", 5)
+        else
+            Notify("Ajiz Hub", "Auto-Rebirth Activated!", 2)
+        end
+    end
 end)
 
 AjizLib:Notify("Ajiz Hub", "Speed Monkey Escape Script Loaded!", 3)
