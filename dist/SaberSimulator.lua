@@ -38,8 +38,53 @@ _G.AutoBuySabers = false
 _G.AutoBuyDNA = false
 _G.AutoRebirth = false
 
--- Remotes Cache (Saber Simulator uses standardized remote events in ReplicatedStorage.Events)
-local Events = ReplicatedStorage:WaitForChild("Events", 5)
+-- Dynamic Remotes Resolver (Prevents folder/path discrepancies)
+local CachedEventsFolder = nil
+local function getEventsFolder()
+    if CachedEventsFolder and CachedEventsFolder.Parent then return CachedEventsFolder end
+    
+    -- Try direct matches
+    local folder = ReplicatedStorage:FindFirstChild("Events") or 
+                   ReplicatedStorage:FindFirstChild("RemoteEvents") or 
+                   ReplicatedStorage:FindFirstChild("events") or
+                   ReplicatedStorage:FindFirstChild("remotes")
+                   
+    if not folder then
+        -- Fallback: Check if Clicked event is directly in ReplicatedStorage
+        if ReplicatedStorage:FindFirstChild("Clicked") or ReplicatedStorage:FindFirstChild("clicked") then
+            folder = ReplicatedStorage
+        else
+            -- Search recursively for any folder containing Clicked
+            for _, child in ipairs(ReplicatedStorage:GetChildren()) do
+                if child:IsA("Folder") and (child:FindFirstChild("Clicked") or child:FindFirstChild("clicked")) then
+                    folder = child
+                    break
+                end
+            end
+        end
+    end
+    
+    CachedEventsFolder = folder
+    return folder
+end
+
+local function getRemote(name)
+    local folder = getEventsFolder()
+    if not folder then return nil end
+    
+    local remote = folder:FindFirstChild(name)
+    if not remote then
+        -- Case insensitive check
+        local lname = name:lower()
+        for _, child in ipairs(folder:GetChildren()) do
+            if (child:IsA("RemoteEvent") or child:IsA("RemoteFunction")) and child.Name:lower():find(lname) then
+                remote = child
+                break
+            end
+        end
+    end
+    return remote
+end
 
 -- ========================================================================
 -- ⚡ AUTOMATION BACKGROUND WORKERS
@@ -48,10 +93,10 @@ local Events = ReplicatedStorage:WaitForChild("Events", 5)
 -- 1. Auto Swing Worker (Swings saber rapidly to gain strength)
 task.spawn(function()
     while true do
-        task.wait(0.01) -- High speed swing loop
+        task.wait(0.01) -- Ultra fast click rate
         if _G.AutoSwing then
             pcall(function()
-                local clickRemote = Events:FindFirstChild("Clicked")
+                local clickRemote = getRemote("Clicked") or getRemote("Click")
                 if clickRemote then
                     clickRemote:FireServer()
                 end
@@ -63,10 +108,10 @@ end)
 -- 2. Auto Sell Worker (Converts strength into coins)
 task.spawn(function()
     while true do
-        task.wait(0.5) -- Fast sell loop
+        task.wait(0.4) -- Fast auto sell loop
         if _G.AutoSell then
             pcall(function()
-                local sellRemote = Events:FindFirstChild("Sell")
+                local sellRemote = getRemote("Sell") or getRemote("SellStrength")
                 if sellRemote then
                     sellRemote:FireServer()
                 end
@@ -75,21 +120,21 @@ task.spawn(function()
     end
 end)
 
--- 3. Auto Upgrades Worker (Saves manual shop clicks)
+-- 3. Auto Upgrades Worker (Automatically purchases all DNA and Sabers)
 task.spawn(function()
     while true do
         task.wait(1.5)
         if _G.AutoBuySabers or _G.AutoBuyDNA then
             pcall(function()
                 if _G.AutoBuySabers then
-                    local buySabers = Events:FindFirstChild("BuyAllSabers")
+                    local buySabers = getRemote("BuyAllSabers") or getRemote("BuySabers") or getRemote("BuySaber")
                     if buySabers then
                         buySabers:FireServer()
                     end
                 end
                 task.wait(0.1)
                 if _G.AutoBuyDNA then
-                    local buyDNA = Events:FindFirstChild("BuyAllDNA")
+                    local buyDNA = getRemote("BuyAllDNA") or getRemote("BuyDNA") or getRemote("BuyDna")
                     if buyDNA then
                         buyDNA:FireServer()
                     end
@@ -105,9 +150,9 @@ task.spawn(function()
         task.wait(1.0)
         if _G.AutoRebirth then
             pcall(function()
-                local rebirthRemote = Events:FindFirstChild("Rebirth")
+                local rebirthRemote = getRemote("Rebirth")
                 if rebirthRemote then
-                    -- Rebirth in progressive orders to clear multipliers (tries standard sizes)
+                    -- Tries standard sizes progressively to buy the maximum available rebirth
                     for _, rebirthSize in ipairs({1000, 500, 100, 50, 10, 5, 1}) do
                         if not _G.AutoRebirth then break end
                         rebirthRemote:FireServer(rebirthSize)
