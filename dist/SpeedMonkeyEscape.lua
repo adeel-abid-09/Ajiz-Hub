@@ -48,7 +48,8 @@ _G.RebirthArgs = nil
 
 -- Caching variables to prevent game freezes
 local CachedTreadmills = {}
-local CachedCheckpoints = {}
+local CachedWinPad = nil
+local CachedSpawnCF = nil
 
 -- Safe Table Dump Helper
 local function safeDump(tbl)
@@ -99,24 +100,18 @@ local function dumpWorkspace()
                 local className = instance.ClassName
                 
                 -- Log containers and keywords
-                if instance:IsA("Folder") or instance:IsA("Model") or instance:IsA("Configuration") or 
-                   name:lower():find("treadmill") or name:lower():find("win") or name:lower():find("finish") or name:lower():find("checkpoint") then
+                if instance:IsA("Folder") or instance:IsA("Model") or instance:IsA("BasePart") or instance:IsA("BillboardGui") then
                     table.insert(lines, indent .. name .. " (" .. className .. ")")
-                    for _, child in ipairs(instance:GetChildren()) do
-                        scan(child, depth + 1)
+                    if not instance:IsA("BasePart") then
+                        for _, child in ipairs(instance:GetChildren()) do
+                            scan(child, depth + 1)
+                        end
                     end
                 end
             end
             
             for _, child in ipairs(workspace:GetChildren()) do
                 scan(child, 0)
-            end
-            
-            table.insert(lines, "\n=== REPLICATEDSTORAGE REMOTES ===")
-            for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
-                if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
-                    table.insert(lines, obj:GetFullName() .. " (" .. obj.ClassName .. ")")
-                end
             end
             
             writefile("ajiz_sme_dump.txt", table.concat(lines, "\n"))
@@ -336,24 +331,6 @@ local function moveToCF(targetCF, speed)
     return true
 end
 
--- Checkpoint Touch Trigger
-local function touchPart(part)
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if root and part then
-        pcall(function()
-            if firetouchinterest then
-                firetouchinterest(part, root, 0)
-                task.wait(0.05)
-                firetouchinterest(part, root, 1)
-            else
-                -- Fallback directly on top of the part
-                root.CFrame = part.CFrame * CFrame.new(0, 1.5, 0)
-            end
-        end)
-    end
-end
-
 -- Trigger Proximity Prompt inside treadmill
 local function triggerPrompt(parent)
     local prompt = parent:FindFirstChildOfClass("ProximityPrompt") or parent.Parent:FindFirstChildOfClass("ProximityPrompt")
@@ -384,27 +361,112 @@ end
 -- 🔍 ENVIRONMENT DETECTOR UTILS & DYNAMIC CACHING (StreamingEnabled Support)
 -- ========================================================================
 
-local function isCheckpoint(part)
-    local lname = string.lower(part.Name)
-    local pname = part.Parent and string.lower(part.Parent.Name) or ""
-    local gpname = part.Parent and part.Parent.Parent and string.lower(part.Parent.Parent.Name) or ""
+-- Dynamic parser to extract numerical reward values from BillboardGuis / part text labels
+local function getWinValue(part)
+    local val = 0
+    pcall(function()
+        local num = tonumber(part.Name:match("%d+"))
+        if num then 
+            val = num 
+        end
+        
+        for _, child in ipairs(part:GetDescendants()) do
+            if child:IsA("TextLabel") or child.ClassName:find("Text") then
+                local text = child.Text
+                if text then
+                    local matchNum = tonumber(text:gsub("%D+", ""))
+                    if matchNum then
+                        val = math.max(val, matchNum)
+                    end
+                end
+            end
+        end
+        
+        if part.Parent then
+            for _, child in ipairs(part.Parent:GetDescendants()) do
+                if child:IsA("TextLabel") or child.ClassName:find("Text") then
+                    local text = child.Text
+                    if text then
+                        local matchNum = tonumber(text:gsub("%D+", ""))
+                        if matchNum then
+                            val = math.max(val, matchNum)
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    return val
+end
+
+-- Scan Workspace to locate all physical Win Pads
+local function findWinPads()
+    local pads = {}
+    pcall(function()
+        for _, obj in ipairs(Workspace:GetDescendants()) do
+            if obj:IsA("BasePart") then
+                local lname = string.lower(obj.Name)
+                local pname = obj.Parent and string.lower(obj.Parent.Name) or ""
+                
+                -- Check if part name or parent name matches Win keywords
+                if lname:find("win") or lname:find("victory") or pname:find("win") or pname:find("victory") then
+                    table.insert(pads, obj)
+                else
+                    -- Check if it contains BillboardGuis indicating Win payouts
+                    for _, child in ipairs(obj:GetChildren()) do
+                        if child:IsA("BillboardGui") or child:IsA("SurfaceGui") then
+                            table.insert(pads, obj)
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end)
+    return pads
+end
+
+local function getBestWinPad()
+    local pads = findWinPads()
+    if #pads == 0 then return nil end
     
-    -- StreamingEnabled fallback: verify parent container keywords
-    local isInCheckpointFolder = pname:find("checkpoint") or pname:find("stage") or pname:find("obby") or gpname:find("checkpoint") or gpname:find("stage")
+    pcall(function()
+        table.sort(pads, function(a, b)
+            return getWinValue(a) > getWinValue(b)
+        end)
+    end)
     
-    if lname:find("checkpoint") or lname:find("win") or lname:find("finish") or lname:find("pad") then
-        return true
-    end
-    if isInCheckpointFolder and (lname:find("part") or tonumber(lname:match("^%d+$")) or part:FindFirstChildOfClass("TouchTransmitter")) then
-        return true
-    end
-    return false
+    return pads[1]
+end
+
+-- Refresh cached teleport targets for infinite Win/Spawn loops
+local function updateWinCaching()
+    pcall(function()
+        CachedWinPad = getBestWinPad()
+        
+        -- Locate SpawnLocation
+        local spawnLoc = Workspace:FindFirstChildOfClass("SpawnLocation")
+        if spawnLoc then
+            CachedSpawnCF = spawnLoc.CFrame
+        else
+            local lobbySpawn = Workspace:FindFirstChild("Spawn") or Workspace:FindFirstChild("LobbySpawn")
+            if lobbySpawn then
+                CachedSpawnCF = lobbySpawn.CFrame
+            else
+                -- Fallback to current player position on script startup
+                local char = LocalPlayer.Character
+                local root = char and char:FindFirstChild("HumanoidRootPart")
+                if root then
+                    CachedSpawnCF = root.CFrame
+                end
+            end
+        end
+    end)
 end
 
 -- Background dynamic caching loop (Re-caches every 5 seconds to load newly streamed-in parts)
 local function cacheWorkspaceObjects()
     local treadmills = {}
-    local checkpoints = {}
     pcall(function()
         for _, obj in ipairs(Workspace:GetDescendants()) do
             if obj:IsA("BasePart") then
@@ -418,18 +480,15 @@ local function cacheWorkspaceObjects()
                         end
                     end
                 end
-                
-                -- Scan Checkpoints
-                if isCheckpoint(obj) then
-                    if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
-                        table.insert(checkpoints, obj)
-                    end
-                end
             end
         end
     end)
     CachedTreadmills = treadmills
-    CachedCheckpoints = checkpoints
+    
+    -- Auto Win loops cache update
+    if _G.AutoWin then
+        updateWinCaching()
+    end
 end
 
 -- Spawn background caching loop
@@ -439,26 +498,6 @@ task.spawn(function()
         task.wait(5) -- Re-scans every 5 seconds (Extremely lightweight, 60 FPS stable)
     end
 end)
-
--- Detect player's current stage/level from leaderstats or UI
-local function getCurrentStage()
-    local stage = 1
-    pcall(function()
-        local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
-        if leaderstats then
-            local stageVal = leaderstats:FindFirstChild("Stage") or leaderstats:FindFirstChild("Level") or leaderstats:FindFirstChild("Checkpoint")
-            if stageVal then
-                stage = stageVal.Value
-            end
-        else
-            local stageVal = LocalPlayer:FindFirstChild("Stage") or LocalPlayer:FindFirstChild("Level") or LocalPlayer:FindFirstChild("Checkpoint")
-            if stageVal then
-                stage = stageVal.Value
-            end
-        end
-    end)
-    return tonumber(stage) or 1
-end
 
 local function findTreadmill()
     local char = LocalPlayer.Character
@@ -477,57 +516,6 @@ local function findTreadmill()
         return closest
     end
     return CachedTreadmills[1]
-end
-
--- Filter checkspoints from static cache matching player's current stage number
-local function getStageCheckpoints()
-    local stageNum = getCurrentStage()
-    local list = {}
-    
-    -- Filter checkpoints matching the current stage
-    pcall(function()
-        for _, cp in ipairs(CachedCheckpoints) do
-            local parentName = cp.Parent and string.lower(cp.Parent.Name) or ""
-            local gParentName = cp.Parent and cp.Parent.Parent and string.lower(cp.Parent.Parent.Name) or ""
-            local sNumStr = tostring(stageNum)
-            
-            if parentName:find(sNumStr) or gParentName:find(sNumStr) or hasAncestorKeyword(cp, "stage " .. sNumStr, "stage" .. sNumStr) then
-                table.insert(list, cp)
-            end
-        end
-    end)
-    
-    -- Fallback: Filter checkpoints within 600 studs from cache if stage naming mismatches
-    if #list == 0 then
-        local char = LocalPlayer.Character
-        local root = char and char:FindFirstChild("HumanoidRootPart")
-        if root then
-            for _, cp in ipairs(CachedCheckpoints) do
-                local dist = (cp.Position - root.Position).Magnitude
-                if dist < 600 then
-                    table.insert(list, cp)
-                end
-            end
-        end
-    end
-    
-    -- Sort checkpoints
-    pcall(function()
-        local char = LocalPlayer.Character
-        local root = char and char:FindFirstChild("HumanoidRootPart")
-        if root then
-            table.sort(list, function(a, b)
-                local aNum = tonumber(a.Name:match("%d+")) or tonumber(a.Parent.Name:match("%d+"))
-                local bNum = tonumber(b.Name:match("%d+")) or tonumber(b.Parent.Name:match("%d+"))
-                if aNum and bNum then
-                    return aNum < bNum
-                end
-                return (a.Position - root.Position).Magnitude < (b.Position - root.Position).Magnitude
-            end)
-        end
-    end)
-    
-    return list
 end
 
 local function equipTrainTool()
@@ -586,31 +574,33 @@ task.spawn(function()
     end
 end)
 
--- 2. Auto Win Worker (Traverses checkpoints sequentially)
+-- 2. Auto Win Worker (Loops teleporting between the highest Win Pad and Spawn with dynamic return wait)
 task.spawn(function()
     while true do
-        task.wait(1.5)
+        task.wait(0.05)
         if _G.AutoWin then
             pcall(function()
-                -- Direct remote win only if dynamic arguments are captured
-                if _G.WinRemote and _G.WinArgs then
-                    _G.WinRemote:FireServer(unpack(_G.WinArgs))
-                else
-                    local checkpoints = getStageCheckpoints()
-                    if #checkpoints > 0 then
-                        for _, cp in ipairs(checkpoints) do
-                            if not _G.AutoWin then break end
-                            
-                            -- Move smoothly to checkpoint using safe linear lerp (300 Speed)
-                            local reached = moveToCF(cp.CFrame * CFrame.new(0, 3, 0), 300)
-                            if reached then
-                                touchPart(cp)
-                                task.wait(0.2)
-                            end
-                        end
-                    else
-                        warn("[AJIZ HUB] Auto-Win enabled but no checkpoints found in active stage.")
-                    end
+                if not CachedWinPad or not CachedSpawnCF then
+                    updateWinCaching()
+                end
+                
+                local char = LocalPlayer.Character
+                local root = char and char:FindFirstChild("HumanoidRootPart")
+                
+                if root and CachedWinPad and CachedSpawnCF then
+                    -- 1. Teleport player directly onto the highest value Win Pad (+200, +100 etc.)
+                    root.CFrame = CachedWinPad.CFrame * CFrame.new(0, 2, 0)
+                    
+                    -- 2. Wait until the game's auto-return logic teleports player back to Spawn
+                    local startTime = os.clock()
+                    repeat
+                        task.wait(0.02)
+                        char = LocalPlayer.Character
+                        root = char and char:FindFirstChild("HumanoidRootPart")
+                    until not _G.AutoWin or not root or (root.Position - CachedSpawnCF.Position).Magnitude < 15 or (os.clock() - startTime) > 1.2
+                    
+                    -- Safe cooldown before starting the next win iteration
+                    task.wait(0.08)
                 end
             end)
         end
@@ -1542,10 +1532,10 @@ Panel:AddToggle("Auto Train Speed", false, function(state)
     end
 end)
 
-Panel:AddToggle("Auto Win (Obby)", false, function(state)
+Panel:AddToggle("Auto Win (Infinite)", false, function(state)
     _G.AutoWin = state
     if state then
-        Notify("Ajiz Hub", "Auto-Win Active! Safely traversing checkpoints.", 3)
+        Notify("Ajiz Hub", "Infinite Win Teleport Loop Active!", 3)
     else
         pcall(DisableFloat)
     end
