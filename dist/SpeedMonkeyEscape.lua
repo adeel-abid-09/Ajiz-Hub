@@ -217,17 +217,17 @@ local success, fatalErr = pcall(function()
                     if not _G.RebirthRemote and (lname:find("rebirth") or lname:find("prestige")) then
                         _G.RebirthRemote = obj
                         _G.RebirthArgs = {}
-                        print("[AJIZ SYSTEM] Auto-Detected Rebirth Remote: " .. obj:GetFullName())
+                        print("[AJIZ SYSTEM] Auto-Detected Rebirth Remote: " .. obj.GetFullName())
                     -- 2. Detect Train/Click Remote
                     elseif not _G.TrainRemote and (lname:find("train") or lname:find("click") or lname:find("addspeed") or lname:find("speedevent")) then
                         _G.TrainRemote = obj
                         _G.TrainArgs = {}
-                        print("[AJIZ SYSTEM] Auto-Detected Train Remote: " .. obj:GetFullName())
+                        print("[AJIZ SYSTEM] Auto-Detected Train Remote: " .. obj.GetFullName())
                     -- 3. Detect Win Remote
                     elseif not _G.WinRemote and (lname:find("win") or lname:find("finish") or lname:find("claimwin")) then
                         _G.WinRemote = obj
                         _G.WinArgs = {}
-                        print("[AJIZ SYSTEM] Auto-Detected Win Remote: " .. obj:GetFullName())
+                        print("[AJIZ SYSTEM] Auto-Detected Win Remote: " .. obj.GetFullName())
                     end
                 end
             end
@@ -690,48 +690,57 @@ local success, fatalErr = pcall(function()
     -- ⚡ AUTOMATION BACKGROUND WORKERS
     -- ========================================================================
 
-    local isTraining = false
-    -- 1. Auto Train Worker (Super-fast speed training loop with instant teleport and concurrency protection)
+    -- 1. Clicker / Remote Firer loop (Supersonic Clicking Thread running up to 200 clicks/sec)
     task.spawn(function()
         while true do
-            task.wait(0.02) -- Supersonic train clicks!
-            if _G.AutoTrain and not isTraining then
-                isTraining = true
+            task.wait(0.005) -- Max speed training clicks!
+            if _G.AutoTrain then
                 pcall(function()
-                    -- Direct remote fire only if dynamic arguments are captured (guarantees correct remote)
                     if _G.TrainRemote and _G.TrainArgs then
                         _G.TrainRemote:FireServer(unpack(_G.TrainArgs))
-                        task.wait(0.02)
                     else
-                        -- Fallback: Equip and activate tool
                         local tool = equipTrainTool()
                         if tool then
                             tool:Activate()
                         end
-                        
-                        -- Teleport instantly to the best unlocked training machine (e.g. +26 Speed skate treadmill)
+                    end
+                end)
+            end
+        end
+    end)
+
+    local isTeleporting = false
+    -- 2. Treadmill Teleport / Proximity Prompt Keep-Alive loop (Slow 1.5s verification thread to prevent jumping/teleport loops)
+    task.spawn(function()
+        while true do
+            task.wait(1.5) -- Slow verification loop
+            if _G.AutoTrain and not isTeleporting then
+                pcall(function()
+                    -- Only run physical teleport if TrainRemote is not captured yet
+                    -- (If remote is captured, player doesn't even need to stand on treadmill to train!)
+                    if not (_G.TrainRemote and _G.TrainArgs) then
                         local treadmill = CachedBestTreadmill or CachedTreadmills[1]
                         local char = LocalPlayer.Character
                         local root = char and char:FindFirstChild("HumanoidRootPart")
                         if treadmill and root then
                             local dist = (root.Position - treadmill.Position).Magnitude
-                            if dist > 8 then
+                            if dist > 15 then
+                                isTeleporting = true
                                 -- Instant teleport onto the treadmill surface (Height 1.5 studs) to avoid server resets
                                 root.CFrame = treadmill.CFrame * CFrame.new(0, 1.5, 0)
                                 task.wait(0.1)
                                 triggerPrompt(treadmill) -- Trigger proximity prompt inside machine
-                                task.wait(0.2) -- Cooldown to stabilize on treadmill
+                                task.wait(0.3) -- Cooldown to let character settle
+                                isTeleporting = false
                             end
                         end
-                        task.wait(0.08) -- Physics cooldown
                     end
                 end)
-                isTraining = false
             end
         end
     end)
 
-    -- 2. Auto Win Worker (Forced loop: Teleports to Win Pad, then instantly forces back to Lobby Spawn pad)
+    -- 3. Auto Win Worker (Forced loop: Teleports to Win Pad, then instantly forces back to Lobby Spawn pad)
     task.spawn(function()
         while true do
             task.wait(0.05)
@@ -758,7 +767,7 @@ local success, fatalErr = pcall(function()
         end
     end)
 
-    -- 3. Auto Rebirth Worker (Dynamic trigger with parameters fallback support)
+    -- 4. Auto Rebirth Worker (Dynamic trigger with parameters fallback support)
     task.spawn(function()
         while true do
             task.wait(2.5)
