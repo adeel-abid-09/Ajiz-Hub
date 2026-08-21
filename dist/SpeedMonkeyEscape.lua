@@ -49,6 +49,7 @@ local success, fatalErr = pcall(function()
 
     -- Caching variables to prevent game freezes
     local CachedTreadmills = {}
+    local CachedBestTreadmill = nil
     local CachedWinPad = nil
     local CachedSpawnCF = nil
 
@@ -204,7 +205,7 @@ local success, fatalErr = pcall(function()
                             
                             if name:find("train") or name:find("click") or name:find("treadmill") or name:find("speed") or firstArg:find("train") or firstArg:find("click") or firstArg:find("treadmill") or firstArg:find("speed") then
                                 _G.TrainRemote = self
-                               _G.TrainArgs = args
+                                _G.TrainArgs = args
                             elseif name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
                                 _G.WinRemote = self
                                 _G.WinArgs = args
@@ -232,7 +233,6 @@ local success, fatalErr = pcall(function()
                     print("[AJIZ SYSTEM] Strict Auto-Detected Rebirth Remote: " .. obj.Name)
                     break
                 end
-            end
         end
     end
     pcall(scanRebirthRemote)
@@ -362,9 +362,99 @@ local success, fatalErr = pcall(function()
     -- 🔍 ENVIRONMENT DETECTOR UTILS & DYNAMIC CACHING (StreamingEnabled Support)
     -- ========================================================================
 
+    -- Detect player's current stage/level from leaderstats or UI
+    local function getCurrentStage()
+        local stage = 1
+        pcall(function()
+            local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+            if leaderstats then
+                local stageVal = leaderstats:FindFirstChild("Stage") or leaderstats:FindFirstChild("Level") or leaderstats:FindFirstChild("Checkpoint")
+                if stageVal then
+                    stage = stageVal.Value
+                end
+            else
+                local stageVal = LocalPlayer:FindFirstChild("Stage") or LocalPlayer:FindFirstChild("Level") or LocalPlayer:FindFirstChild("Checkpoint")
+                if stageVal then
+                    stage = stageVal.Value
+                end
+            end
+        end)
+        return tonumber(stage) or 1
+    end
+
     -- Dynamic parser to extract numerical reward values from BillboardGuis / part text labels
     local function getWinValue(part)
         local val = 0
+        pcall(function()
+            local num = tonumber(part.Name:match("%d+"))
+            if num then 
+                val = num 
+            end
+            
+            for _, child in ipairs(part:GetDescendants()) do
+                if child:IsA("TextLabel") or child.ClassName:find("Text") then
+                    local text = child.Text
+                    if text then
+                        local matchNum = tonumber(text:gsub("%D+", ""))
+                        if matchNum then
+                            val = math.max(val, matchNum)
+                        end
+                    end
+                end
+            end
+            
+            if part.Parent then
+                for _, child in ipairs(part.Parent:GetDescendants()) do
+                    if child:IsA("TextLabel") or child.ClassName:find("Text") then
+                        local text = child.Text
+                        if text then
+                            local matchNum = tonumber(text:gsub("%D+", ""))
+                            if matchNum then
+                                val = math.max(val, matchNum)
+                            end
+                        end
+                    end
+                end
+            end
+        end)
+        return val
+    end
+
+    -- Extract level requirement from treadmill name or labels
+    local function getTreadmillRequiredLevel(part)
+        local req = 0
+        pcall(function()
+            local function check(text)
+                local t = string.lower(text)
+                if t:find("level") or t:find("req") or t:find("lvl") then
+                    local num = tonumber(t:match("%d+"))
+                    if num then
+                        req = math.max(req, num)
+                    end
+                end
+            end
+            
+            check(part.Name)
+            for _, child in ipairs(part:GetDescendants()) do
+                if child:IsA("TextLabel") or child.ClassName:find("Text") then
+                    if child.Text then check(child.Text) end
+                end
+            end
+            if part.Parent then
+                check(part.Parent.Name)
+                for _, child in ipairs(part.Parent:GetDescendants()) do
+                    if child:IsA("TextLabel") or child.ClassName:find("Text") then
+                        if child.Text then check(child.Text) end
+                    end
+                end
+            end
+        end)
+        return req
+    end
+
+    -- Extract multiplier speed value from treadmill name or labels
+    local function getTreadmillValue(part)
+        local val = 1
         pcall(function()
             local num = tonumber(part.Name:match("%d+"))
             if num then 
@@ -500,6 +590,26 @@ local success, fatalErr = pcall(function()
         end)
     end
 
+    -- Filter all cached treadmills to locate the best unlocked machine
+    local function getBestTreadmill()
+        local playerLvl = getCurrentStage()
+        local bestTreadmill = nil
+        local maxVal = -1
+        
+        for _, t in ipairs(CachedTreadmills) do
+            local reqLvl = getTreadmillRequiredLevel(t)
+            if playerLvl >= reqLvl then
+                local val = getTreadmillValue(t)
+                if val > maxVal then
+                    maxVal = val
+                    bestTreadmill = t
+                end
+            end
+        end
+        
+        return bestTreadmill
+    end
+
     -- Background dynamic caching loop (Re-caches every 5 seconds to load newly streamed-in parts)
     local function cacheWorkspaceObjects()
         local treadmills = {}
@@ -521,6 +631,11 @@ local success, fatalErr = pcall(function()
         end)
         CachedTreadmills = treadmills
         
+        -- Resolve and cache the best training machine matching the player's level
+        pcall(function()
+            CachedBestTreadmill = getBestTreadmill()
+        end)
+        
         -- Auto Win loops cache update
         if _G.AutoWin then
             updateWinCaching()
@@ -534,25 +649,6 @@ local success, fatalErr = pcall(function()
             task.wait(5) -- Re-scans every 5 seconds (Extremely lightweight, 60 FPS stable)
         end
     end)
-
-    local function findTreadmill()
-        local char = LocalPlayer.Character
-        local root = char and char:FindFirstChild("HumanoidRootPart")
-        if root and #CachedTreadmills > 0 then
-            local closest = CachedTreadmills[1]
-            local minDist = (closest.Position - root.Position).Magnitude
-            for i = 2, #CachedTreadmills do
-                local t = CachedTreadmills[i]
-                local d = (t.Position - root.Position).Magnitude
-                if d < minDist then
-                    minDist = d
-                    closest = t
-                end
-            end
-            return closest
-        end
-        return CachedTreadmills[1]
-    end
 
     local function equipTrainTool()
         local char = LocalPlayer.Character
@@ -576,10 +672,10 @@ local success, fatalErr = pcall(function()
     -- ⚡ AUTOMATION BACKGROUND WORKERS
     -- ========================================================================
 
-    -- 1. Auto Train Worker
+    -- 1. Auto Train Worker (Super-fast speed training loop)
     task.spawn(function()
         while true do
-            task.wait(0.1)
+            task.wait(0.02) -- Supersonic train clicks!
             if _G.AutoTrain then
                 pcall(function()
                     -- Direct remote fire only if dynamic arguments are captured (guarantees correct remote)
@@ -592,8 +688,8 @@ local success, fatalErr = pcall(function()
                             tool:Activate()
                         end
                         
-                        -- Treadmill physical teleport
-                        local treadmill = findTreadmill()
+                        -- Teleport to the best unlocked training machine (e.g. +15 Speed treadmill matching Level 24)
+                        local treadmill = CachedBestTreadmill or CachedTreadmills[1]
                         local char = LocalPlayer.Character
                         local root = char and char:FindFirstChild("HumanoidRootPart")
                         if treadmill and root then
@@ -601,7 +697,7 @@ local success, fatalErr = pcall(function()
                             if dist > 8 then
                                 moveToCF(treadmill.CFrame * CFrame.new(0, 3.5, 0), 300)
                                 task.wait(0.1)
-                                triggerPrompt(treadmill) -- Trigger proximity prompt if any
+                                triggerPrompt(treadmill) -- Trigger proximity prompt inside machine
                             end
                         end
                     end
