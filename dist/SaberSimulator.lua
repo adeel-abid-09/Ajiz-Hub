@@ -38,10 +38,17 @@ _G.AutoBuySabers = false
 _G.AutoBuyDNA = false
 _G.AutoRebirth = false
 
--- Dynamic Remotes Resolver (Prevents folder/path discrepancies)
+-- Dynamic Remotes Resolver (Prevents folder/path discrepancies with search throttling)
+local lastSearchTime = 0
 local CachedEventsFolder = nil
 local function getEventsFolder()
     if CachedEventsFolder and CachedEventsFolder.Parent then return CachedEventsFolder end
+    
+    local now = os.clock()
+    if now - lastSearchTime < 3 then
+        return nil -- Rate limit scans to once every 3 seconds to avoid CPU overload
+    end
+    lastSearchTime = now
     
     -- Try direct matches
     local folder = ReplicatedStorage:FindFirstChild("Events") or 
@@ -86,6 +93,38 @@ local function getRemote(name)
     return remote
 end
 
+-- Dynamic Weapon Auto-Equip (Server rejects swings unless Saber tool is held)
+local function equipSaber()
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+    if hum then
+        local equipped = char:FindFirstChildWhichIsA("Tool")
+        if equipped then return equipped end
+        for _, item in ipairs(LocalPlayer.Backpack:GetChildren()) do
+            if item:IsA("Tool") or item.Name:lower():find("saber") or item.Name:lower():find("sword") then
+                hum:EquipTool(item)
+                return item
+            end
+        end
+    end
+    return nil
+end
+
+-- Diagnostic Tool for Saber Simulator Remotes
+pcall(function()
+    print("=== AJIZ SABER SIM DIAGNOSTICS ===")
+    local folder = getEventsFolder()
+    if folder then
+        print("Events Folder Found: " .. folder:GetFullName())
+        for _, child in ipairs(folder:GetChildren()) do
+            print("  Event: " .. child.Name .. " (" .. child.ClassName .. ")")
+        end
+    else
+        print("Events Folder NOT Found in ReplicatedStorage!")
+    end
+    print("==================================")
+end)
+
 -- ========================================================================
 -- ⚡ AUTOMATION BACKGROUND WORKERS
 -- ========================================================================
@@ -93,9 +132,10 @@ end
 -- 1. Auto Swing Worker (Swings saber rapidly to gain strength)
 task.spawn(function()
     while true do
-        task.wait(0.01) -- Ultra fast click rate
+        task.wait(0.02) -- Clean rate limit
         if _G.AutoSwing then
             pcall(function()
+                equipSaber() -- Auto equip saber tool
                 local clickRemote = getRemote("Clicked") or getRemote("Click")
                 if clickRemote then
                     clickRemote:FireServer()
