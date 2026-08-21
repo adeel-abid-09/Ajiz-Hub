@@ -219,7 +219,7 @@ local success, fatalErr = pcall(function()
                         _G.RebirthArgs = {}
                         print("[AJIZ SYSTEM] Auto-Detected Rebirth Remote: " .. obj.GetFullName())
                     -- 2. Detect Train/Click Remote
-                    elseif not _G.TrainRemote and (lname:find("train") or lname:find("click") or lname:find("addspeed") or lname:find("speedevent")) then
+                    elseif not _G.TrainRemote and (lname:find("train") or lname:find("click") or lname:find("speed") or lname:find("tap") or lname:find("farm")) then
                         _G.TrainRemote = obj
                         _G.TrainArgs = {}
                         print("[AJIZ SYSTEM] Auto-Detected Train Remote: " .. obj.GetFullName())
@@ -699,6 +699,14 @@ local success, fatalErr = pcall(function()
                     if _G.TrainRemote and _G.TrainArgs then
                         _G.TrainRemote:FireServer(unpack(_G.TrainArgs))
                     else
+                        -- Simulating screen click using VirtualUser (Fires manual click local scripts to capture Remote)
+                        pcall(function()
+                            VirtualUser:Button1Down(Vector2.new(0, 0))
+                            task.wait(0.01)
+                            VirtualUser:Button1Up(Vector2.new(0, 0))
+                        end)
+                        
+                        -- Tool activation fallback (if tool exists)
                         local tool = equipTrainTool()
                         if tool then
                             tool:Activate()
@@ -716,23 +724,19 @@ local success, fatalErr = pcall(function()
             task.wait(1.5) -- Slow verification loop
             if _G.AutoTrain and not isTeleporting then
                 pcall(function()
-                    -- Only run physical teleport if TrainRemote is not captured yet
-                    -- (If remote is captured, player doesn't even need to stand on treadmill to train!)
-                    if not (_G.TrainRemote and _G.TrainArgs) then
-                        local treadmill = CachedBestTreadmill or CachedTreadmills[1]
-                        local char = LocalPlayer.Character
-                        local root = char and char:FindFirstChild("HumanoidRootPart")
-                        if treadmill and root then
-                            local dist = (root.Position - treadmill.Position).Magnitude
-                            if dist > 15 then
-                                isTeleporting = true
-                                -- Instant teleport onto the treadmill surface (Height 1.5 studs) to avoid server resets
-                                root.CFrame = treadmill.CFrame * CFrame.new(0, 1.5, 0)
-                                task.wait(0.1)
-                                triggerPrompt(treadmill) -- Trigger proximity prompt inside machine
-                                task.wait(0.3) -- Cooldown to let character settle
-                                isTeleporting = false
-                            end
+                    local treadmill = CachedBestTreadmill or CachedTreadmills[1]
+                    local char = LocalPlayer.Character
+                    local root = char and char:FindFirstChild("HumanoidRootPart")
+                    if treadmill and root then
+                        local dist = (root.Position - treadmill.Position).Magnitude
+                        if dist > 15 then
+                            isTeleporting = true
+                            -- Instant teleport onto the treadmill surface (Height 1.5 studs) to avoid server resets
+                            root.CFrame = treadmill.CFrame * CFrame.new(0, 1.5, 0)
+                            task.wait(0.1)
+                            triggerPrompt(treadmill) -- Trigger proximity prompt inside machine
+                            task.wait(0.3) -- Cooldown to let character settle
+                            isTeleporting = false
                         end
                     end
                 end)
