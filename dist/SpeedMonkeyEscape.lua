@@ -277,7 +277,7 @@ local success, fatalErr = pcall(function()
         end
     end)
 
-    -- Robust CFrame Lerp (With 4s Fail-Safe Timeout to prevent hangs)
+    -- Robust CFrame Lerp (With 4s Fail-Safe Timeout and global pcall crash protection)
     local function moveToCF(targetCF, speed)
         speed = speed or 250
         local char = LocalPlayer.Character
@@ -293,43 +293,45 @@ local success, fatalErr = pcall(function()
         noCollisionActive = true
         EnableFloat(root)
         
-        local startCF = root.CFrame
-        local duration = dist / speed
-        local startTime = os.clock()
-        
-        while os.clock() - startTime < duration do
-            if not _G.AutoWin and not _G.AutoTrain then break end
-            if os.clock() - startTime > 4 then break end
+        local successMove = pcall(function()
+            local startCF = root.CFrame
+            local duration = dist / speed
+            local startTime = os.clock()
             
-            char = LocalPlayer.Character
-            local currentRoot = char and char:FindFirstChild("HumanoidRootPart")
-            if not currentRoot then break end
-            root = currentRoot
-            
-            local elapsed = os.clock() - startTime
-            local t = elapsed / duration
-            if t > 1 then t = 1 end
-            
-            root.CFrame = startCF:Lerp(targetCF, t)
-            root.Velocity = Vector3.zero
-            root.RotVelocity = Vector3.zero
-            
-            task.wait() -- Wait for frame step
-        end
-        
-        -- Final snap
-        if _G.AutoWin or _G.AutoTrain then
-            char = LocalPlayer.Character
-            local currentRoot = char and char:FindFirstChild("HumanoidRootPart")
-            if currentRoot then
-                currentRoot.CFrame = targetCF
-                currentRoot.Velocity = Vector3.zero
+            while os.clock() - startTime < duration do
+                if not _G.AutoWin and not _G.AutoTrain then break end
+                if os.clock() - startTime > 4 then break end
+                
+                char = LocalPlayer.Character
+                local currentRoot = char and char:FindFirstChild("HumanoidRootPart")
+                if not currentRoot then break end
+                root = currentRoot
+                
+                local elapsed = os.clock() - startTime
+                local t = elapsed / duration
+                if t > 1 then t = 1 end
+                
+                root.CFrame = startCF:Lerp(targetCF, t)
+                root.Velocity = Vector3.zero
+                root.RotVelocity = Vector3.zero
+                
+                task.wait() -- Wait for frame step
             end
-        end
+            
+            -- Final snap
+            if _G.AutoWin or _G.AutoTrain then
+                char = LocalPlayer.Character
+                local currentRoot = char and char:FindFirstChild("HumanoidRootPart")
+                if currentRoot then
+                    currentRoot.CFrame = targetCF
+                    currentRoot.Velocity = Vector3.zero
+                end
+            end
+        end)
         
         DisableFloat()
         noCollisionActive = false
-        return true
+        return successMove
     end
 
     -- Trigger Proximity Prompt inside treadmill
@@ -618,11 +620,15 @@ local success, fatalErr = pcall(function()
                 if obj:IsA("BasePart") then
                     -- Scan Treadmills (Flexible regex search to capture all treadmill parts/proximity pads)
                     local lname = string.lower(obj.Name)
-                    local isTreadmillPart = lname:find("treadmill") or lname:find("train") or lname:find("run") or lname:find("belt") or lname:find("platform") or lname:find("pad") or hasAncestorKeyword(obj, "treadmill", "train", "run")
-                    if isTreadmillPart then
+                    local isTreadmillPart = lname:find("treadmill") or lname:find("belt") or lname:find("platform")
+                    
+                    -- Strictly exclude speed multiplier pads/checkpoints inside stages/obbi folder
+                    local isStageObject = hasAncestorKeyword(obj, "stage", "obby", "checkpoint") or hasAncestorKeyword(obj, "zone", "win", "finish")
+                    
+                    if isTreadmillPart and not isStageObject then
                         if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
                             -- Include primary parts containing proximity prompts or matching base designations
-                            if obj:FindFirstChildOfClass("ProximityPrompt") or lname == "belt" or lname == "run" or lname == "treadmill" or lname:find("treadmill") then
+                            if obj:FindFirstChildOfClass("ProximityPrompt") or lname == "belt" or lname == "treadmill" or lname:find("treadmill") then
                                 table.insert(treadmills, obj)
                             end
                         end
