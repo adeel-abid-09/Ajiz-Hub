@@ -4,386 +4,374 @@
     ========================================================================
 --]]
 
-local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
-local HttpService = game:GetService("HttpService")
-local Players = game:GetService("Players")
-local Workspace = game:GetService("Workspace")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
-local VirtualUser = game:GetService("VirtualUser")
+local success, fatalErr = pcall(function()
+    local TweenService = game:GetService("TweenService")
+    local UserInputService = game:GetService("UserInputService")
+    local HttpService = game:GetService("HttpService")
+    local Players = game:GetService("Players")
+    local Workspace = game:GetService("Workspace")
+    local ReplicatedStorage = game:GetService("ReplicatedStorage")
+    local RunService = game:GetService("RunService")
+    local VirtualUser = game:GetService("VirtualUser")
 
--- Safe CoreGui Retrieval
-local CoreGui = nil
-pcall(function()
-    CoreGui = game:GetService("CoreGui")
-end)
-
--- Safe Player Acquisition (No infinite yield)
-local LocalPlayer = Players.LocalPlayer
-if not LocalPlayer then
-    local start = os.clock()
-    repeat 
-        task.wait(0.1) 
-        LocalPlayer = Players.LocalPlayer 
-    until LocalPlayer or (os.clock() - start) > 10
-end
-if not LocalPlayer then
-    LocalPlayer = Players.PlayerAdded:Wait()
-end
-
--- Global States
-_G.AutoTrain = false
-_G.AutoWin = false
-_G.AutoRebirth = false
-_G.SpeedBoost = false
-_G.InfJump = false
-
-_G.TrainRemote = nil
-_G.TrainArgs = nil
-_G.WinRemote = nil
-_G.WinArgs = nil
-_G.RebirthRemote = nil
-_G.RebirthArgs = nil
-
--- Caching variables to prevent game freezes
-local CachedTreadmills = {}
-local CachedWinPad = nil
-local CachedSpawnCF = nil
-
--- Safe Table Dump Helper
-local function safeDump(tbl)
-    if type(tbl) ~= "table" then return tostring(tbl) end
-    local parts = {}
-    for k, v in pairs(tbl) do
-        table.insert(parts, tostring(k) .. ": " .. tostring(v) .. " (" .. typeof(v) .. ")")
-    end
-    return "{" .. table.concat(parts, ", ") .. "}"
-end
-
--- In-game Notification Helper
-local function Notify(title, msg, dur)
-    dur = dur or 3
+    -- Safe CoreGui Retrieval
+    local CoreGui = nil
     pcall(function()
-        game:GetService("StarterGui"):SetCore("SendNotification", {
-            Title = title,
-            Text = msg,
-            Duration = dur
-        })
+        CoreGui = game:GetService("CoreGui")
     end)
-end
 
--- Recursive Ancestor Scanner to detect nested parts in Lobby/Obby folders
-local function hasAncestorKeyword(instance, keyword1, keyword2, keyword3)
-    local parent = instance.Parent
-    while parent and parent ~= Workspace do
-        local pname = string.lower(parent.Name)
-        if pname:find(keyword1) or (keyword2 and pname:find(keyword2)) or (keyword3 and pname:find(keyword3)) then
+    -- Safe Player Acquisition (No infinite yield)
+    local LocalPlayer = Players.LocalPlayer
+    if not LocalPlayer then
+        local start = os.clock()
+        repeat 
+            task.wait(0.1) 
+            LocalPlayer = Players.LocalPlayer 
+        until LocalPlayer or (os.clock() - start) > 10
+    end
+    if not LocalPlayer then
+        LocalPlayer = Players.PlayerAdded:Wait()
+    end
+
+    -- Global States
+    _G.AutoTrain = false
+    _G.AutoWin = false
+    _G.AutoRebirth = false
+    _G.SpeedBoost = false
+    _G.InfJump = false
+
+    _G.TrainRemote = nil
+    _G.TrainArgs = nil
+    _G.WinRemote = nil
+    _G.WinArgs = nil
+    _G.RebirthRemote = nil
+    _G.RebirthArgs = nil
+
+    -- Caching variables to prevent game freezes
+    local CachedTreadmills = {}
+    local CachedWinPad = nil
+    local CachedSpawnCF = nil
+
+    -- Safe Table Dump Helper
+    local function safeDump(tbl)
+        if type(tbl) ~= "table" then return tostring(tbl) end
+        local parts = {}
+        for k, v in pairs(tbl) do
+            table.insert(parts, tostring(k) .. ": " .. tostring(v) .. " (" .. typeof(v) .. ")")
+        end
+        return "{" .. table.concat(parts, ", ") .. "}"
+    end
+
+    -- In-game Notification Helper
+    local function Notify(title, msg, dur)
+        dur = dur or 3
+        pcall(function()
+            game:GetService("StarterGui"):SetCore("SendNotification", {
+                Title = title,
+                Text = msg,
+                Duration = dur
+            })
+        end)
+    end
+
+    -- Recursive Ancestor Scanner to detect nested parts in Lobby/Obby folders
+    local function hasAncestorKeyword(instance, keyword1, keyword2, keyword3)
+        local parent = instance.Parent
+        while parent and parent ~= Workspace do
+            local pname = string.lower(parent.Name)
+            if pname:find(keyword1) or (keyword2 and pname:find(keyword2)) or (keyword3 and pname:find(keyword3)) then
+                return true
+            end
+            parent = parent.Parent
+        end
+        return false
+    end
+
+    -- Workspace structure and remote event dumper to local file
+    local function dumpWorkspace()
+        pcall(function()
+            if writefile then
+                local lines = {}
+                table.insert(lines, "=== AJIZ WORKSPACE DUMP ===")
+                
+                local function scan(instance, depth)
+                    if depth > 4 then return end
+                    local indent = string.rep("  ", depth)
+                    local name = instance.Name
+                    local className = instance.ClassName
+                    
+                    -- Log containers and keywords
+                    if instance:IsA("Folder") or instance:IsA("Model") or instance:IsA("BasePart") or instance:IsA("BillboardGui") then
+                        table.insert(lines, indent .. name .. " (" .. className .. ")")
+                        if not instance:IsA("BasePart") then
+                            for _, child in ipairs(instance:GetChildren()) do
+                                scan(child, depth + 1)
+                            end
+                        end
+                    end
+                end
+                
+                for _, child in ipairs(workspace:GetChildren()) do
+                    scan(child, 0)
+                end
+                
+                writefile("ajiz_sme_dump.txt", table.concat(lines, "\n"))
+                print("[AJIZ SYSTEM] Workspace structure successfully dumped to 'ajiz_sme_dump.txt'!")
+            end
+        end)
+    end
+    pcall(dumpWorkspace)
+
+    -- ========================================================================
+    -- 🧠 DUAL-LAYER REMOTE HOOK (C-Level Method Hooks + Metamethod Fallback)
+    -- ========================================================================
+    local successHook = false
+
+    if hookfunction then
+        pcall(function()
+            local oldFireServer
+            oldFireServer = hookfunction(Instance.new("RemoteEvent").FireServer, newcclosure(function(self, ...)
+                if not checkcaller() then
+                    local args = {...}
+                    local name = string.lower(self.Name)
+                    local firstArg = tostring(args[1] or ""):lower()
+                    
+                    pcall(function()
+                        print("[AJIZ HOOK FIRE] Remote: " .. self.Name .. " | Args: " .. safeDump(args))
+                    end)
+                    
+                    if name:find("train") or name:find("click") or name:find("treadmill") or name:find("speed") or firstArg:find("train") or firstArg:find("click") or firstArg:find("treadmill") or firstArg:find("speed") then
+                        _G.TrainRemote = self
+                        _G.TrainArgs = args
+                    elseif name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
+                        _G.WinRemote = self
+                        _G.WinArgs = args
+                    elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
+                        _G.RebirthRemote = self
+                        _G.RebirthArgs = args
+                    end
+                end
+                return oldFireServer(self, ...)
+            end))
+
+            local oldInvokeServer
+            oldInvokeServer = hookfunction(Instance.new("RemoteFunction").InvokeServer, newcclosure(function(self, ...)
+                if not checkcaller() then
+                    local args = {...}
+                    local name = string.lower(self.Name)
+                    local firstArg = tostring(args[1] or ""):lower()
+                    
+                    pcall(function()
+                        print("[AJIZ HOOK INVOKE] Remote: " .. self.Name .. " | Args: " .. safeDump(args))
+                    end)
+                    
+                    if name:find("train") or name:find("click") or name:find("treadmill") or name:find("speed") or firstArg:find("train") or firstArg:find("click") or firstArg:find("treadmill") or firstArg:find("speed") then
+                        _G.TrainRemote = self
+                        _G.TrainArgs = args
+                    elseif name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
+                        _G.WinRemote = self
+                        _G.WinArgs = args
+                    elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
+                        _G.RebirthRemote = self
+                        _G.RebirthArgs = args
+                    end
+                end
+                return oldInvokeServer(self, ...)
+            end))
+            
+            successHook = true
+            print("[AJIZ SYSTEM] SME C-Level Remote Hooks Applied successfully!")
+        end)
+    end
+
+    if not successHook then
+        task.spawn(function()
+            local success, mt = pcall(function() return getrawmetatable(game) end)
+            if success and mt then
+                local oldNamecall = mt.__namecall
+                setreadonly(mt, false)
+                mt.__namecall = newcclosure(function(self, ...)
+                    if not checkcaller() then
+                        local method = getnamecallmethod()
+                        local args = {...}
+                        if method == "FireServer" or method == "InvokeServer" then
+                            local name = string.lower(self.Name)
+                            local firstArg = tostring(args[1] or ""):lower()
+                            
+                            pcall(function()
+                                print("[AJIZ HOOK NAMECALL] Remote: " .. self.Name .. " | Args: " .. safeDump(args))
+                            end)
+                            
+                            if name:find("train") or name:find("click") or name:find("treadmill") or name:find("speed") or firstArg:find("train") or firstArg:find("click") or firstArg:find("treadmill") or firstArg:find("speed") then
+                                _G.TrainRemote = self
+                               _G.TrainArgs = args
+                            elseif name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
+                                _G.WinRemote = self
+                                _G.WinArgs = args
+                            elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
+                                _G.RebirthRemote = self
+                                _G.RebirthArgs = args
+                            end
+                        end
+                    end
+                    return oldNamecall(self, ...)
+                end)
+                setreadonly(mt, true)
+                print("[AJIZ SYSTEM] SME Metamethod Hook Applied successfully!")
+            end
+        end)
+    end
+
+    -- Rebirth Remote Auto-Detection (Strict check to prevent tutorial remote mismatch)
+    local function scanRebirthRemote()
+        for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
+            if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
+                local lname = string.lower(obj.Name)
+                if lname == "rebirth" then
+                    _G.RebirthRemote = obj
+                    print("[AJIZ SYSTEM] Strict Auto-Detected Rebirth Remote: " .. obj.Name)
+                    break
+                end
+            end
+        end
+    end
+    pcall(scanRebirthRemote)
+
+    -- ========================================================================
+    -- 🏝️ PHYSICS & NO-CLIP PLATFORM CORE
+    -- ========================================================================
+
+    local FloatBody = nil
+    local function EnableFloat(root)
+        if not FloatBody or not FloatBody.Parent then
+            FloatBody = Instance.new("BodyVelocity")
+            FloatBody.Name = "AjizV_" .. tostring(math.random(100, 999))
+            FloatBody.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+            FloatBody.Velocity = Vector3.zero
+            FloatBody.Parent = root
+        end
+    end
+
+    local function DisableFloat()
+        if FloatBody then
+            FloatBody:Destroy()
+            FloatBody = nil
+        end
+    end
+
+    RunService.Stepped:Connect(function()
+        if _G.AutoTrain or _G.AutoWin then
+            pcall(function()
+                local char = LocalPlayer.Character
+                if char then
+                    for _, part in ipairs(char:GetDescendants()) do
+                        if part:IsA("BasePart") and part.CanCollide then
+                            part.CanCollide = false
+                        end
+                    end
+                end
+            end)
+        end
+    end)
+
+    -- Robust CFrame Lerp (With 4s Fail-Safe Timeout to prevent hangs)
+    local function moveToCF(targetCF, speed)
+        speed = speed or 250
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not root then return false end
+
+        local dist = (root.Position - targetCF.Position).Magnitude
+        if dist < 8 then
+            root.CFrame = targetCF
             return true
         end
-        parent = parent.Parent
-    end
-    return false
-end
 
--- Workspace structure and remote event dumper to local file
-local function dumpWorkspace()
-    pcall(function()
-        if writefile then
-            local lines = {}
-            table.insert(lines, "=== AJIZ WORKSPACE DUMP ===")
-            
-            local function scan(instance, depth)
-                if depth > 4 then return end
-                local indent = string.rep("  ", depth)
-                local name = instance.Name
-                local className = instance.ClassName
-                
-                -- Log containers and keywords
-                if instance:IsA("Folder") or instance:IsA("Model") or instance:IsA("BasePart") or instance:IsA("BillboardGui") then
-                    table.insert(lines, indent .. name .. " (" .. className .. ")")
-                    if not instance:IsA("BasePart") then
-                        for _, child in ipairs(instance:GetChildren()) do
-                            scan(child, depth + 1)
-                        end
-                    end
-                end
-            end
-            
-            for _, child in ipairs(workspace:GetChildren()) do
-                scan(child, 0)
-            end
-            
-            writefile("ajiz_sme_dump.txt", table.concat(lines, "\n"))
-            print("[AJIZ SYSTEM] Workspace structure successfully dumped to 'ajiz_sme_dump.txt'!")
-        end
-    end)
-end
-pcall(dumpWorkspace)
-
--- ========================================================================
--- 🧠 DUAL-LAYER REMOTE HOOK (C-Level Method Hooks + Metamethod Fallback)
--- ========================================================================
-local successHook = false
-
-if hookfunction then
-    pcall(function()
-        local oldFireServer
-        oldFireServer = hookfunction(Instance.new("RemoteEvent").FireServer, newcclosure(function(self, ...)
-            if not checkcaller() then
-                local args = {...}
-                local name = string.lower(self.Name)
-                local firstArg = tostring(args[1] or ""):lower()
-                
-                pcall(function()
-                    print("[AJIZ HOOK FIRE] Remote: " .. self.Name .. " | Args: " .. safeDump(args))
-                end)
-                
-                if name:find("train") or name:find("click") or name:find("treadmill") or name:find("speed") or firstArg:find("train") or firstArg:find("click") or firstArg:find("treadmill") or firstArg:find("speed") then
-                    _G.TrainRemote = self
-                    _G.TrainArgs = args
-                elseif name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
-                    _G.WinRemote = self
-                    _G.WinArgs = args
-                elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
-                    _G.RebirthRemote = self
-                    _G.RebirthArgs = args
-                end
-            end
-            return oldFireServer(self, ...)
-        end))
-
-        local oldInvokeServer
-        oldInvokeServer = hookfunction(Instance.new("RemoteFunction").InvokeServer, newcclosure(function(self, ...)
-            if not checkcaller() then
-                local args = {...}
-                local name = string.lower(self.Name)
-                local firstArg = tostring(args[1] or ""):lower()
-                
-                pcall(function()
-                    print("[AJIZ HOOK INVOKE] Remote: " .. self.Name .. " | Args: " .. safeDump(args))
-                end)
-                
-                if name:find("train") or name:find("click") or name:find("treadmill") or name:find("speed") or firstArg:find("train") or firstArg:find("click") or firstArg:find("treadmill") or firstArg:find("speed") then
-                    _G.TrainRemote = self
-                    _G.TrainArgs = args
-                elseif name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
-                    _G.WinRemote = self
-                    _G.WinArgs = args
-                elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
-                    _G.RebirthRemote = self
-                    _G.RebirthArgs = args
-                end
-            end
-            return oldInvokeServer(self, ...)
-        end))
+        EnableFloat(root)
         
-        successHook = true
-        print("[AJIZ SYSTEM] SME C-Level Remote Hooks Applied successfully!")
-    end)
-end
+        local startCF = root.CFrame
+        local duration = dist / speed
+        local startTime = os.clock()
+        
+        while os.clock() - startTime < duration do
+            if not _G.AutoWin and not _G.AutoTrain then break end
+            
+            -- Timeout Fail-safe (Max 4 seconds per movement step to prevent infinite hangs)
+            if os.clock() - startTime > 4 then 
+                break 
+            end
+            
+            char = LocalPlayer.Character
+            local currentRoot = char and char:FindFirstChild("HumanoidRootPart")
+            if not currentRoot then break end
+            root = currentRoot
+            
+            local elapsed = os.clock() - startTime
+            local t = elapsed / duration
+            if t > 1 then t = 1 end
+            
+            -- Safe linear interpolation
+            root.CFrame = startCF:Lerp(targetCF, t)
+            root.Velocity = Vector3.zero
+            root.RotVelocity = Vector3.zero
+            
+            task.wait() -- Wait for frame step
+        end
+        
+        -- Final snap
+        if _G.AutoWin or _G.AutoTrain then
+            char = LocalPlayer.Character
+            local currentRoot = char and char:FindFirstChild("HumanoidRootPart")
+            if currentRoot then
+                currentRoot.CFrame = targetCF
+                currentRoot.Velocity = Vector3.zero
+            end
+        end
+        
+        DisableFloat()
+        return true
+    end
 
-if not successHook then
-    task.spawn(function()
-        local success, mt = pcall(function() return getrawmetatable(game) end)
-        if success and mt then
-            local oldNamecall = mt.__namecall
-            setreadonly(mt, false)
-            mt.__namecall = newcclosure(function(self, ...)
-                if not checkcaller() then
-                    local method = getnamecallmethod()
-                    local args = {...}
-                    if method == "FireServer" or method == "InvokeServer" then
-                        local name = string.lower(self.Name)
-                        local firstArg = tostring(args[1] or ""):lower()
-                        
-                        pcall(function()
-                            print("[AJIZ HOOK NAMECALL] Remote: " .. self.Name .. " | Args: " .. safeDump(args))
-                        end)
-                        
-                        if name:find("train") or name:find("click") or name:find("treadmill") or name:find("speed") or firstArg:find("train") or firstArg:find("click") or firstArg:find("treadmill") or firstArg:find("speed") then
-                            _G.TrainRemote = self
-                            _G.TrainArgs = args
-                        elseif name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
-                            _G.WinRemote = self
-                            _G.WinArgs = args
-                        elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
-                            _G.RebirthRemote = self
-                            _G.RebirthArgs = args
-                        end
-                    end
+    -- Trigger Proximity Prompt inside treadmill
+    local function triggerPrompt(parent)
+        local prompt = parent:FindFirstChildOfClass("ProximityPrompt") or parent.Parent:FindFirstChildOfClass("ProximityPrompt")
+        if not prompt then
+            for _, child in ipairs(parent:GetChildren()) do
+                if child:IsA("ProximityPrompt") then
+                    prompt = child
+                    break
                 end
-                return oldNamecall(self, ...)
+            end
+        end
+        if prompt then
+            pcall(function()
+                if fireproximityprompt then
+                    fireproximityprompt(prompt)
+                else
+                    prompt:InputHoldBegin()
+                    task.wait(prompt.HoldDuration + 0.05)
+                    prompt:InputHoldEnd()
+                end
             end)
-            setreadonly(mt, true)
-            print("[AJIZ SYSTEM] SME Metamethod Hook Applied successfully!")
+            return true
         end
-    end)
-end
-
--- Rebirth Remote Auto-Detection (Strict check to prevent tutorial remote mismatch)
-local function scanRebirthRemote()
-    for _, obj in ipairs(ReplicatedStorage:GetDescendants()) do
-        if obj:IsA("RemoteEvent") or obj:IsA("RemoteFunction") then
-            local lname = string.lower(obj.Name)
-            if lname == "rebirth" then
-                _G.RebirthRemote = obj
-                print("[AJIZ SYSTEM] Strict Auto-Detected Rebirth Remote: " .. obj.Name)
-                break
-            end
-        end
+        return false
     end
-end
-pcall(scanRebirthRemote)
 
--- ========================================================================
--- 🏝️ PHYSICS & NO-CLIP PLATFORM CORE
--- ========================================================================
+    -- ========================================================================
+    -- 🔍 ENVIRONMENT DETECTOR UTILS & DYNAMIC CACHING (StreamingEnabled Support)
+    -- ========================================================================
 
-local FloatBody = nil
-local function EnableFloat(root)
-    if not FloatBody or not FloatBody.Parent then
-        FloatBody = Instance.new("BodyVelocity")
-        FloatBody.Name = "AjizV_" .. tostring(math.random(100, 999))
-        FloatBody.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-        FloatBody.Velocity = Vector3.zero
-        FloatBody.Parent = root
-    end
-end
-
-local function DisableFloat()
-    if FloatBody then
-        FloatBody:Destroy()
-        FloatBody = nil
-    end
-end
-
-RunService.Stepped:Connect(function()
-    if _G.AutoTrain or _G.AutoWin then
+    -- Dynamic parser to extract numerical reward values from BillboardGuis / part text labels
+    local function getWinValue(part)
+        local val = 0
         pcall(function()
-            local char = LocalPlayer.Character
-            if char then
-                for _, part in ipairs(char:GetDescendants()) do
-                    if part:IsA("BasePart") and part.CanCollide then
-                        part.CanCollide = false
-                    end
-                end
+            local num = tonumber(part.Name:match("%d+"))
+            if num then 
+                val = num 
             end
-        end)
-    end
-end)
-
--- Robust CFrame Lerp (With 4s Fail-Safe Timeout to prevent hangs)
-local function moveToCF(targetCF, speed)
-    speed = speed or 250
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if not root then return false end
-
-    local dist = (root.Position - targetCF.Position).Magnitude
-    if dist < 8 then
-        root.CFrame = targetCF
-        return true
-    end
-
-    EnableFloat(root)
-    
-    local startCF = root.CFrame
-    local duration = dist / speed
-    local startTime = os.clock()
-    
-    while os.clock() - startTime < duration do
-        if not _G.AutoWin and not _G.AutoTrain then break end
-        
-        -- Timeout Fail-safe (Max 4 seconds per movement step to prevent infinite hangs)
-        if os.clock() - startTime > 4 then 
-            break 
-        end
-        
-        char = LocalPlayer.Character
-        local currentRoot = char and char:FindFirstChild("HumanoidRootPart")
-        if not currentRoot then break end
-        root = currentRoot
-        
-        local elapsed = os.clock() - startTime
-        local t = elapsed / duration
-        if t > 1 then t = 1 end
-        
-        -- Safe linear interpolation
-        root.CFrame = startCF:Lerp(targetCF, t)
-        root.Velocity = Vector3.zero
-        root.RotVelocity = Vector3.zero
-        
-        task.wait() -- Wait for frame step
-    end
-    
-    -- Final snap
-    if _G.AutoWin or _G.AutoTrain then
-        char = LocalPlayer.Character
-        local currentRoot = char and char:FindFirstChild("HumanoidRootPart")
-        if currentRoot then
-            currentRoot.CFrame = targetCF
-            currentRoot.Velocity = Vector3.zero
-        end
-    end
-    
-    DisableFloat()
-    return true
-end
-
--- Trigger Proximity Prompt inside treadmill
-local function triggerPrompt(parent)
-    local prompt = parent:FindFirstChildOfClass("ProximityPrompt") or parent.Parent:FindFirstChildOfClass("ProximityPrompt")
-    if not prompt then
-        for _, child in ipairs(parent:GetChildren()) do
-            if child:IsA("ProximityPrompt") then
-                prompt = child
-                break
-            end
-        end
-    end
-    if prompt then
-        pcall(function()
-            if fireproximityprompt then
-                fireproximityprompt(prompt)
-            else
-                prompt:InputHoldBegin()
-                task.wait(prompt.HoldDuration + 0.05)
-                prompt:InputHoldEnd()
-            end
-        end)
-        return true
-    end
-    return false
-end
-
--- ========================================================================
--- 🔍 ENVIRONMENT DETECTOR UTILS & DYNAMIC CACHING (StreamingEnabled Support)
--- ========================================================================
-
--- Dynamic parser to extract numerical reward values from BillboardGuis / part text labels
-local function getWinValue(part)
-    local val = 0
-    pcall(function()
-        local num = tonumber(part.Name:match("%d+"))
-        if num then 
-            val = num 
-        end
-        
-        for _, child in ipairs(part:GetDescendants()) do
-            if child:IsA("TextLabel") or child.ClassName:find("Text") then
-                local text = child.Text
-                if text then
-                    local matchNum = tonumber(text:gsub("%D+", ""))
-                    if matchNum then
-                        val = math.max(val, matchNum)
-                    end
-                end
-            end
-        end
-        
-        if part.Parent then
-            for _, child in ipairs(part.Parent:GetDescendants()) do
+            
+            for _, child in ipairs(part:GetDescendants()) do
                 if child:IsA("TextLabel") or child.ClassName:find("Text") then
                     local text = child.Text
                     if text then
@@ -394,45 +382,47 @@ local function getWinValue(part)
                     end
                 end
             end
-        end
-    end)
-    return val
-end
-
--- Strict Win Pad validation to exclude VIP pads and Speed multiplier platforms
-local function isRealWinPad(part)
-    local hasWinKeyword = false
-    local hasExcludeKeyword = false
-    
-    local function checkText(text)
-        local t = string.lower(text)
-        -- Must contain Win keyword
-        if t:find("win") then
-            hasWinKeyword = true
-        end
-        -- Strictly exclude VIP, gamepass, speed training multipliers, level zones
-        if t:find("speed") or t:find("multiplier") or t:find("x") or t:find("train") or 
-           t:find("rebirth") or t:find("level") or t:find("jump") or t:find("vip") or 
-           t:find("robux") or t:find("pass") or t:find("premium") or t:find("gp") then
-            hasExcludeKeyword = true
-        end
-    end
-    
-    checkText(part.Name)
-    
-    for _, child in ipairs(part:GetDescendants()) do
-        if child:IsA("TextLabel") or child.ClassName:find("Text") then
-            pcall(function()
-                if child.Text then
-                    checkText(child.Text)
+            
+            if part.Parent then
+                for _, child in ipairs(part.Parent:GetDescendants()) do
+                    if child:IsA("TextLabel") or child.ClassName:find("Text") then
+                        local text = child.Text
+                        if text then
+                            local matchNum = tonumber(text:gsub("%D+", ""))
+                            if matchNum then
+                                val = math.max(val, matchNum)
+                            end
+                        end
+                    end
                 end
-            end)
-        end
+            end
+        end)
+        return val
     end
-    
-    if part.Parent then
-        checkText(part.Parent.Name)
-        for _, child in ipairs(part.Parent:GetChildren()) do
+
+    -- Strict Win Pad validation to exclude VIP pads and Speed multiplier platforms
+    local function isRealWinPad(part)
+        local hasWinKeyword = false
+        local hasExcludeKeyword = false
+        
+        local function checkText(text)
+            local t = string.lower(text)
+            -- Must contain Win keyword
+            if t:find("win") then
+                hasWinKeyword = true
+            end
+            -- Strictly exclude VIP, gamepass, speed training multipliers, level zones
+            -- Using %d+x regex to avoid matching "Box" (ends with x) or "Hitbox"
+            if t:find("speed") or t:find("multiplier") or t:find("%d+x") or t:find("train") or 
+               t:find("rebirth") or t:find("level") or t:find("jump") or t:find("vip") or 
+               t:find("robux") or t:find("pass") or t:find("premium") or t:find("gp") then
+                hasExcludeKeyword = true
+            end
+        end
+        
+        checkText(part.Name)
+        
+        for _, child in ipairs(part:GetDescendants()) do
             if child:IsA("TextLabel") or child.ClassName:find("Text") then
                 pcall(function()
                     if child.Text then
@@ -441,258 +431,270 @@ local function isRealWinPad(part)
                 end)
             end
         end
-    end
-    
-    return hasWinKeyword and not hasExcludeKeyword
-end
-
--- Scan Workspace to locate all physical Win Pads
-local function findWinPads()
-    local pads = {}
-    pcall(function()
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj:IsA("BasePart") and isRealWinPad(obj) then
-                table.insert(pads, obj)
-            end
-        end
-    end)
-    return pads
-end
-
-local function getBestWinPad()
-    local pads = findWinPads()
-    if #pads == 0 then return nil end
-    
-    pcall(function()
-        table.sort(pads, function(a, b)
-            return getWinValue(a) > getWinValue(b)
-        end)
-    end)
-    
-    return pads[1]
-end
-
--- Refresh cached teleport targets for infinite Win/Spawn loops
-local function updateWinCaching()
-    pcall(function()
-        CachedWinPad = getBestWinPad()
         
-        -- Locate SpawnLocation (Targeting the exact Lobby Spawn Pad shown in user screenshot)
-        local spawnLoc = Workspace:FindFirstChild("SpawnLocation") or Workspace:FindFirstChildOfClass("SpawnLocation")
-        if spawnLoc then
-            CachedSpawnCF = spawnLoc.CFrame
-        else
-            -- Look for parts named "Spawn" or "Lobby"
-            local lobbySpawn = Workspace:FindFirstChild("Spawn") or Workspace:FindFirstChild("LobbySpawn") or Workspace:FindFirstChild("Lobby")
-            if lobbySpawn then
-                CachedSpawnCF = lobbySpawn.CFrame
-            else
-                -- Fallback to current player position on script startup
-                local char = LocalPlayer.Character
-                local root = char and char:FindFirstChild("HumanoidRootPart")
-                if root then
-                    CachedSpawnCF = root.CFrame
-                end
-            end
-        end
-    end)
-end
-
--- Background dynamic caching loop (Re-caches every 5 seconds to load newly streamed-in parts)
-local function cacheWorkspaceObjects()
-    local treadmills = {}
-    pcall(function()
-        for _, obj in ipairs(Workspace:GetDescendants()) do
-            if obj:IsA("BasePart") then
-                -- Scan Treadmills
-                local lname = string.lower(obj.Name)
-                if lname:find("treadmill") or lname:find("train") or lname:find("run") or
-                   hasAncestorKeyword(obj, "treadmill", "train", "run") then
-                    if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
-                        if lname == "belt" or lname == "run" or lname == "platform" or lname == "pad" then
-                            table.insert(treadmills, obj)
+        if part.Parent then
+            checkText(part.Parent.Name)
+            for _, child in ipairs(part.Parent:GetChildren()) do
+                if child:IsA("TextLabel") or child.ClassName:find("Text") then
+                    pcall(function()
+                        if child.Text then
+                            checkText(child.Text)
                         end
-                    end
+                    end)
                 end
             end
         end
-    end)
-    CachedTreadmills = treadmills
-    
-    -- Auto Win loops cache update
-    if _G.AutoWin then
-        updateWinCaching()
+        
+        return hasWinKeyword and not hasExcludeKeyword
     end
-end
 
--- Spawn background caching loop
-task.spawn(function()
-    while true do
-        pcall(cacheWorkspaceObjects)
-        task.wait(5) -- Re-scans every 5 seconds (Extremely lightweight, 60 FPS stable)
-    end
-end)
-
-local function findTreadmill()
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    if root and #CachedTreadmills > 0 then
-        local closest = CachedTreadmills[1]
-        local minDist = (closest.Position - root.Position).Magnitude
-        for i = 2, #CachedTreadmills do
-            local t = CachedTreadmills[i]
-            local d = (t.Position - root.Position).Magnitude
-            if d < minDist then
-                minDist = d
-                closest = t
+    -- Scan Workspace to locate all physical Win Pads
+    local function findWinPads()
+        local pads = {}
+        pcall(function()
+            for _, obj in ipairs(Workspace:GetDescendants()) do
+                if obj:IsA("BasePart") and isRealWinPad(obj) then
+                    table.insert(pads, obj)
+                end
             end
-        end
-        return closest
+        end)
+        return pads
     end
-    return CachedTreadmills[1]
-end
 
-local function equipTrainTool()
-    local char = LocalPlayer.Character
-    local humanoid = char and char:FindFirstChildWhichIsA("Humanoid")
-    if humanoid then
-        local equipped = char:FindFirstChildWhichIsA("Tool")
-        if equipped then
-            return equipped
-        end
-        for _, item in ipairs(LocalPlayer.Backpack:GetChildren()) do
-            if item:IsA("Tool") then
-                humanoid:EquipTool(item)
-                return item
-            end
-        end
+    local function getBestWinPad()
+        local pads = findWinPads()
+        if #pads == 0 then return nil end
+        
+        pcall(function()
+            table.sort(pads, function(a, b)
+                return getWinValue(a) > getWinValue(b)
+            end)
+        end)
+        
+        return pads[1]
     end
-    return nil
-end
 
--- ========================================================================
--- ⚡ AUTOMATION BACKGROUND WORKERS
--- ========================================================================
-
--- 1. Auto Train Worker
-task.spawn(function()
-    while true do
-        task.wait(0.1)
-        if _G.AutoTrain then
-            pcall(function()
-                -- Direct remote fire only if dynamic arguments are captured (guarantees correct remote)
-                if _G.TrainRemote and _G.TrainArgs then
-                    _G.TrainRemote:FireServer(unpack(_G.TrainArgs))
+    -- Refresh cached teleport targets for infinite Win/Spawn loops
+    local function updateWinCaching()
+        pcall(function()
+            CachedWinPad = getBestWinPad()
+            
+            -- Locate SpawnLocation (Targeting the exact Lobby Spawn Pad shown in user screenshot)
+            local spawnLoc = Workspace:FindFirstChild("SpawnLocation") or Workspace:FindFirstChildOfClass("SpawnLocation")
+            if spawnLoc then
+                CachedSpawnCF = spawnLoc.CFrame
+            else
+                -- Look for parts named "Spawn" or "Lobby"
+                local lobbySpawn = Workspace:FindFirstChild("Spawn") or Workspace:FindFirstChild("LobbySpawn") or Workspace:FindFirstChild("Lobby")
+                if lobbySpawn then
+                    CachedSpawnCF = lobbySpawn.CFrame
                 else
-                    -- Fallback: Equip and activate tool
-                    local tool = equipTrainTool()
-                    if tool then
-                        tool:Activate()
-                    end
-                    
-                    -- Treadmill physical teleport
-                    local treadmill = findTreadmill()
+                    -- Fallback to current player position on script startup
                     local char = LocalPlayer.Character
                     local root = char and char:FindFirstChild("HumanoidRootPart")
-                    if treadmill and root then
-                        local dist = (root.Position - treadmill.Position).Magnitude
-                        if dist > 8 then
-                            moveToCF(treadmill.CFrame * CFrame.new(0, 3.5, 0), 300)
-                            task.wait(0.1)
-                            triggerPrompt(treadmill) -- Trigger proximity prompt if any
+                    if root then
+                        CachedSpawnCF = root.CFrame
+                    end
+                end
+            end
+        end)
+    end
+
+    -- Background dynamic caching loop (Re-caches every 5 seconds to load newly streamed-in parts)
+    local function cacheWorkspaceObjects()
+        local treadmills = {}
+        pcall(function()
+            for _, obj in ipairs(Workspace:GetDescendants()) do
+                if obj:IsA("BasePart") then
+                    -- Scan Treadmills
+                    local lname = string.lower(obj.Name)
+                    if lname:find("treadmill") or lname:find("train") or lname:find("run") or
+                       hasAncestorKeyword(obj, "treadmill", "train", "run") then
+                        if not obj:IsDescendantOf(LocalPlayer.Character) and not obj:IsDescendantOf(Players) then
+                            if lname == "belt" or lname == "run" or lname == "platform" or lname == "pad" then
+                                table.insert(treadmills, obj)
+                            end
                         end
                     end
                 end
-            end)
-        end
-    end
-end)
-
--- 2. Auto Win Worker (Forced loop: Teleports to Win Pad, then instantly forces back to Lobby Spawn pad)
-task.spawn(function()
-    while true do
-        task.wait(0.05)
+            end
+        end)
+        CachedTreadmills = treadmills
+        
+        -- Auto Win loops cache update
         if _G.AutoWin then
-            pcall(function()
-                if not CachedWinPad or not CachedSpawnCF then
-                    updateWinCaching()
-                end
-                
-                local char = LocalPlayer.Character
-                local root = char and char:FindFirstChild("HumanoidRootPart")
-                
-                if root and CachedWinPad and CachedSpawnCF then
-                    -- 1. Teleport player directly onto the Win Pad
-                    root.CFrame = CachedWinPad.CFrame * CFrame.new(0, 2, 0)
-                    task.wait(0.25) -- Cooldown to guarantee touch registers on server
-                    
-                    -- 2. Force-teleport player back to Lobby Spawn pad (Prevents training machines auto-teleport)
-                    root.CFrame = CachedSpawnCF * CFrame.new(0, 3, 0)
-                    task.wait(0.25) -- Cooldown before next win iteration
-                end
-            end)
+            updateWinCaching()
         end
     end
-end)
 
--- 3. Auto Rebirth Worker
-task.spawn(function()
-    while true do
-        task.wait(2.5)
-        if _G.AutoRebirth then
-            pcall(function()
-                if _G.RebirthRemote then
-                    local args = _G.RebirthArgs
-                    if not args or #args == 0 then
-                        args = {1} -- Standard Rebirth fallback parameter
+    -- Spawn background caching loop
+    task.spawn(function()
+        while true do
+            pcall(cacheWorkspaceObjects)
+            task.wait(5) -- Re-scans every 5 seconds (Extremely lightweight, 60 FPS stable)
+        end
+    end)
+
+    local function findTreadmill()
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if root and #CachedTreadmills > 0 then
+            local closest = CachedTreadmills[1]
+            local minDist = (closest.Position - root.Position).Magnitude
+            for i = 2, #CachedTreadmills do
+                local t = CachedTreadmills[i]
+                local d = (t.Position - root.Position).Magnitude
+                if d < minDist then
+                    minDist = d
+                    closest = t
+                end
+            end
+            return closest
+        end
+        return CachedTreadmills[1]
+    end
+
+    local function equipTrainTool()
+        local char = LocalPlayer.Character
+        local humanoid = char and char:FindFirstChildWhichIsA("Humanoid")
+        if humanoid then
+            local equipped = char:FindFirstChildWhichIsA("Tool")
+            if equipped then
+                return equipped
+            end
+            for _, item in ipairs(LocalPlayer.Backpack:GetChildren()) do
+                if item:IsA("Tool") then
+                    humanoid:EquipTool(item)
+                    return item
+                end
+            end
+        end
+        return nil
+    end
+
+    -- ========================================================================
+    -- ⚡ AUTOMATION BACKGROUND WORKERS
+    -- ========================================================================
+
+    -- 1. Auto Train Worker
+    task.spawn(function()
+        while true do
+            task.wait(0.1)
+            if _G.AutoTrain then
+                pcall(function()
+                    -- Direct remote fire only if dynamic arguments are captured (guarantees correct remote)
+                    if _G.TrainRemote and _G.TrainArgs then
+                        _G.TrainRemote:FireServer(unpack(_G.TrainArgs))
+                    else
+                        -- Fallback: Equip and activate tool
+                        local tool = equipTrainTool()
+                        if tool then
+                            tool:Activate()
+                        end
+                        
+                        -- Treadmill physical teleport
+                        local treadmill = findTreadmill()
+                        local char = LocalPlayer.Character
+                        local root = char and char:FindFirstChild("HumanoidRootPart")
+                        if treadmill and root then
+                            local dist = (root.Position - treadmill.Position).Magnitude
+                            if dist > 8 then
+                                moveToCF(treadmill.CFrame * CFrame.new(0, 3.5, 0), 300)
+                                task.wait(0.1)
+                                triggerPrompt(treadmill) -- Trigger proximity prompt if any
+                            end
+                        end
                     end
-                    _G.RebirthRemote:FireServer(unpack(args))
+                end)
+            end
+        end
+    end)
+
+    -- 2. Auto Win Worker (Forced loop: Teleports to Win Pad, then instantly forces back to Lobby Spawn pad)
+    task.spawn(function()
+        while true do
+            task.wait(0.05)
+            if _G.AutoWin then
+                pcall(function()
+                    if not CachedWinPad or not CachedSpawnCF then
+                        updateWinCaching()
+                    end
+                    
+                    local char = LocalPlayer.Character
+                    local root = char and char:FindFirstChild("HumanoidRootPart")
+                    
+                    if root and CachedWinPad and CachedSpawnCF then
+                        -- 1. Teleport player directly onto the Win Pad
+                        root.CFrame = CachedWinPad.CFrame * CFrame.new(0, 2, 0)
+                        task.wait(0.25) -- Cooldown to guarantee touch registers on server
+                        
+                        -- 2. Force-teleport player back to Lobby Spawn pad (Prevents training machines auto-teleport)
+                        root.CFrame = CachedSpawnCF * CFrame.new(0, 3, 0)
+                        task.wait(0.25) -- Cooldown before next win iteration
+                    end
+                end)
+            end
+        end
+    end)
+
+    -- 3. Auto Rebirth Worker
+    task.spawn(function()
+        while true do
+            task.wait(2.5)
+            if _G.AutoRebirth then
+                pcall(function()
+                    if _G.RebirthRemote then
+                        local args = _G.RebirthArgs
+                        if not args or #args == 0 then
+                            args = {1} -- Standard Rebirth fallback parameter
+                        end
+                        _G.RebirthRemote:FireServer(unpack(args))
+                    end
+                end)
+            end
+        end
+    end)
+
+    -- WalkSpeed Auto Sync (High Frequency RenderStepped loop to override local scripts)
+    RunService.RenderStepped:Connect(function()
+        if _G.SpeedBoost then
+            pcall(function()
+                local char = LocalPlayer.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hum.WalkSpeed = 100
                 end
             end)
         end
-    end
-end)
+    end)
 
--- WalkSpeed Auto Sync (High Frequency RenderStepped loop to override local scripts)
-RunService.RenderStepped:Connect(function()
-    if _G.SpeedBoost then
-        pcall(function()
-            local char = LocalPlayer.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            if hum then
-                hum.WalkSpeed = 100
-            end
-        end)
-    end
-end)
+    -- Infinite Jump
+    UserInputService.JumpRequest:Connect(function()
+        if _G.InfJump then
+            pcall(function()
+                local char = LocalPlayer.Character
+                local hum = char and char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    hum:ChangeState(Enum.HumanoidStateType.Jumping)
+                end
+            end)
+        end
+    end)
 
--- Infinite Jump
-UserInputService.JumpRequest:Connect(function()
-    if _G.InfJump then
-        pcall(function()
-            local char = LocalPlayer.Character
-            local hum = char and char:FindFirstChildOfClass("Humanoid")
-            if hum then
-                hum:ChangeState(Enum.HumanoidStateType.Jumping)
-            end
-        end)
-    end
-end)
-
--- Anti-AFK
-pcall(function()
-    LocalPlayer.Idled:Connect(function()
-        pcall(function()
-            VirtualUser:CaptureController()
-            VirtualUser:ClickButton2(Vector2.new(0, 0))
+    -- Anti-AFK
+    pcall(function()
+        LocalPlayer.Idled:Connect(function()
+            pcall(function()
+                VirtualUser:CaptureController()
+                VirtualUser:ClickButton2(Vector2.new(0, 0))
+            end)
         end)
     end)
-end)
 
--- ========================================================================
--- 🎨 GUI INTERFACE DELEGATED TO AJIZLIB
--- ========================================================================
-local AjizLib = (function()
+    -- ========================================================================
+    -- 🎨 GUI INTERFACE DELEGATED TO AJIZLIB
+    -- ========================================================================
+    local AjizLib = (function()
 --[[
     ========================================================================
     🌟 AJIZ HUB - COMPLETE UI & 24H HWID KEY SYSTEM FRAMEWORK (LUAU) 🌟
@@ -1545,48 +1547,60 @@ return AjizLib
 
 end)()
 
-local Panel = AjizLib:CreateWindow({
-    Title = "AJIZ HUB",
-    GameName = "Monkey Escape",
-    Footer = "Ajiz Hub"
-})
+    local Panel = AjizLib:CreateWindow({
+        Title = "AJIZ HUB",
+        GameName = "Monkey Escape",
+        Footer = "Ajiz Hub"
+    })
 
-Panel:AddToggle("Auto Train Speed", false, function(state)
-    _G.AutoTrain = state
-    if state then
-        Notify("Ajiz Hub", "Auto-Train Active! Check dev log if remotes hook.", 4)
-    else
-        pcall(DisableFloat)
-    end
+    Panel:AddToggle("Auto Train Speed", false, function(state)
+        _G.AutoTrain = state
+        if state then
+            Notify("Ajiz Hub", "Auto-Train Active! Check dev log if remotes hook.", 4)
+        else
+            pcall(DisableFloat)
+        end
+    end)
+
+    Panel:AddToggle("Auto Win (Infinite)", false, function(state)
+        _G.AutoWin = state
+        if state then
+            Notify("Ajiz Hub", "Infinite Win Teleport Loop Active!", 3)
+        else
+            pcall(DisableFloat)
+        end
+    end)
+
+    Panel:AddToggle("Auto Rebirth", false, function(state)
+        _G.AutoRebirth = state
+        if state then
+            Notify("Ajiz Hub", "Auto-Rebirth Active! Please rebirth manually once to capture remote.", 4)
+        end
+    end)
+
+    Panel:AddToggle("Speed Boost (Max)", false, function(state)
+        _G.SpeedBoost = state
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if hum then
+            hum.WalkSpeed = state and 100 or 16
+        end
+    end)
+
+    Panel:AddToggle("Infinite Jump", false, function(state)
+        _G.InfJump = state
+    end)
+
+    AjizLib:Notify("Ajiz Hub", "Speed Monkey Escape Script Upgraded!", 3)
 end)
 
-Panel:AddToggle("Auto Win (Infinite)", false, function(state)
-    _G.AutoWin = state
-    if state then
-        Notify("Ajiz Hub", "Infinite Win Teleport Loop Active!", 3)
-    else
-        pcall(DisableFloat)
-    end
-end)
-
-Panel:AddToggle("Auto Rebirth", false, function(state)
-    _G.AutoRebirth = state
-    if state then
-        Notify("Ajiz Hub", "Auto-Rebirth Active! Please rebirth manually once to capture remote.", 4)
-    end
-end)
-
-Panel:AddToggle("Speed Boost (Max)", false, function(state)
-    _G.SpeedBoost = state
-    local char = LocalPlayer.Character
-    local hum = char and char:FindFirstChildOfClass("Humanoid")
-    if hum then
-        hum.WalkSpeed = state and 100 or 16
-    end
-end)
-
-Panel:AddToggle("Infinite Jump", false, function(state)
-    _G.InfJump = state
-end)
-
-AjizLib:Notify("Ajiz Hub", "Speed Monkey Escape Script Upgraded!", 3)
+if not success then
+    pcall(function()
+        warn("[AJIZ FATAL ERROR] " .. tostring(fatalErr))
+        game:GetService("StarterGui"):SetCore("SendNotification", {
+            Title = "Ajiz Hub Error",
+            Text = tostring(fatalErr):sub(1, 100),
+            Duration = 10
+        })
+    end)
+end
