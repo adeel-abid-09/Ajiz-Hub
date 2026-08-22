@@ -1,6 +1,6 @@
 --[[
     ========================================================================
-    ⚡ AJIZ HUB - CHEATING DURING TESTING (MODULAR GAME LOGIC) ⚡
+    ⚡ AJIZ HUB - NATURAL DISASTER SURVIVAL (MODULAR GAME LOGIC) ⚡
     ========================================================================
 --]]
 
@@ -28,326 +28,105 @@ if not LocalPlayer then
 end
 
 -- Global States
-_G.AutoCheat = false
-_G.AntiCaught = false
-_G.TeacherESP = false
+_G.AutoSurvive = false
+_G.DisasterPredictor = false
+_G.DisableFallDamage = false
 _G.WalkSpeed = 16
 _G.JumpPower = 50
 _G.NoClip = false
 
-_G.CheatRemote = nil
-_G.CheatArgs = nil
-
--- Noclip connection handler
+-- Safe Platform Holder (Sky Safe Zone)
+local SafePlatform = nil
 local NoclipConnection = nil
 
--- Safe Table Dump Helper
-local function safeDump(tbl)
-    if type(tbl) ~= "table" then return tostring(tbl) end
-    local parts = {}
-    for k, v in pairs(tbl) do
-        table.insert(parts, tostring(k) .. ": " .. tostring(v) .. " (" .. typeof(v) .. ")")
-    end
-    return "{" .. table.concat(parts, ", ") .. "}"
+-- Create Safe Platform in the Sky (Height Y = 380)
+local function createPlatform()
+    if SafePlatform and SafePlatform.Parent then return SafePlatform end
+    SafePlatform = Instance.new("Part")
+    SafePlatform.Size = Vector3.new(50, 2, 50)
+    SafePlatform.CFrame = CFrame.new(-285, 380, 395)
+    SafePlatform.Anchored = true
+    SafePlatform.Material = Enum.Material.Glass
+    SafePlatform.Color = Color3.fromRGB(0, 170, 255)
+    SafePlatform.Transparency = 0.5
+    SafePlatform.Name = "AjizHubSafePlatform"
+    SafePlatform.Parent = Workspace
+    return SafePlatform
 end
 
--- ========================================================================
--- 🧠 DUAL-LAYER REMOTE HOOK (Metatable Hook & Method Hook)
--- ========================================================================
-local successHook = false
-
-if hookfunction then
-    pcall(function()
-        local oldFireServer
-        oldFireServer = hookfunction(Instance.new("RemoteEvent").FireServer, newcclosure(function(self, ...)
-            if not checkcaller() then
-                local args = {...}
-                local name = string.lower(self.Name)
-                
-                pcall(function()
-                    print("[AJIZ HOOK FIRE] Remote: " .. self.Name .. " | Args: " .. safeDump(args))
-                end)
-                
-                if name:find("cheat") or name:find("photo") or name:find("camera") or name:find("answer") or name:find("test") then
-                    _G.CheatRemote = self
-                    _G.CheatArgs = args
-                end
-            end
-            return oldFireServer(self, ...)
-        end))
-
-        local oldInvokeServer
-        oldInvokeServer = hookfunction(Instance.new("RemoteFunction").InvokeServer, newcclosure(function(self, ...)
-            if not checkcaller() then
-                local args = {...}
-                local name = string.lower(self.Name)
-                
-                pcall(function()
-                    print("[AJIZ HOOK INVOKE] Remote: " .. self.Name .. " | Args: " .. safeDump(args))
-                end)
-                
-                if name:find("cheat") or name:find("photo") or name:find("camera") or name:find("answer") or name:find("test") then
-                    _G.CheatRemote = self
-                    _G.CheatArgs = args
-                end
-            end
-            return oldInvokeServer(self, ...)
-        end))
-        
-        successHook = true
-        print("[AJIZ SYSTEM] C-Level Method Hooks Applied successfully!")
-    end)
+-- Remove Safe Platform from the Sky
+local function removePlatform()
+    if SafePlatform then
+        SafePlatform:Destroy()
+        SafePlatform = nil
+    end
 end
 
-if not successHook then
-    task.spawn(function()
-        local success, mt = pcall(function() return getrawmetatable(game) end)
-        if success and mt then
-            local oldNamecall = mt.__namecall
-            setreadonly(mt, false)
-
-            mt.__namecall = newcclosure(function(self, ...)
-                if checkcaller() then
-                    return oldNamecall(self, ...)
-                end
-                
-                local method = getnamecallmethod()
-                local args = {...}
-                
-                if method == "FireServer" or method == "InvokeServer" then
-                    local name = string.lower(self.Name)
-                    
-                    pcall(function()
-                        print("[AJIZ NETWORK] Remote: " .. self.Name .. " | Args: " .. safeDump(args))
-                    end)
-                    
-                    if name:find("cheat") or name:find("photo") or name:find("camera") or name:find("answer") or name:find("test") then
-                        _G.CheatRemote = self
-                        _G.CheatArgs = args
-                    end
-                end
-                
-                return oldNamecall(self, ...)
-            end)
-            setreadonly(mt, true)
-            print("[AJIZ SYSTEM] Metamethod Namecall Hook Applied successfully!")
-        end
-    end)
-end
-
--- ========================================================================
--- 🏫 GAMEPLAY RESOLVERS & CALCULATORS (Throttled & Cached)
--- ========================================================================
-local CachedTeacher = nil
-local lastTeacherSearch = 0
-
--- Find Teacher NPC in Workspace (Cached to prevent FPS lag)
-local function findTeacher()
-    if CachedTeacher and CachedTeacher.Parent and CachedTeacher:FindFirstChild("HumanoidRootPart") then
-        return CachedTeacher
-    end
-    
-    local now = os.clock()
-    if now - lastTeacherSearch < 3 then
-        return CachedTeacher
-    end
-    lastTeacherSearch = now
-    
-    -- 1. Search for explicit names
-    for _, obj in ipairs(Workspace:GetChildren()) do
-        if obj:IsA("Model") then
-            local name = obj.Name:lower()
-            if name:find("teacher") or name:find("instructor") or name:find("proctor") or name:find("professor") or name:find("mr.") or name:find("mrs.") or name:find("ms.") then
-                CachedTeacher = obj
-                return obj
-            end
-        end
-    end
-    
-    -- 2. Search deeper in workspace
+-- Get Lobby CFrame Spawn Location dynamically
+local function getLobbyCFrame()
     for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Model") then
-            local name = obj.Name:lower()
-            if name:find("teacher") or name:find("instructor") or name:find("proctor") or name:find("professor") then
-                CachedTeacher = obj
-                return obj
-            end
+        if obj:IsA("SpawnLocation") then
+            return obj.CFrame + Vector3.new(0, 5, 0)
         end
     end
-    
-    -- 3. Fallback: Find any model with humanoid that is not a player character
-    for _, obj in ipairs(Workspace:GetChildren()) do
-        if obj:IsA("Model") and obj:FindFirstChildWhichIsA("Humanoid") then
-            if not Players:GetPlayerFromCharacter(obj) and obj.Name ~= "NPC" then
-                CachedTeacher = obj
-                return obj
-            end
-        end
-    end
-    
-    return nil
-end
-
--- Calculate if Teacher is looking directly at the local player
-local function isTeacherLooking()
-    local char = LocalPlayer.Character
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    local teacher = findTeacher()
-    local teacherRoot = teacher and (teacher:FindFirstChild("HumanoidRootPart") or teacher:FindFirstChild("Head"))
-    
-    if root and teacherRoot then
-        local toPlayer = (root.Position - teacherRoot.Position).Unit
-        local teacherLook = teacherRoot.CFrame.LookVector
-        local dot = teacherLook:Dot(toPlayer)
-        
-        -- FOV check (dot > 0.4 corresponds to ~130 degree field of view)
-        if dot > 0.4 then
-            -- Raycast check to confirm line of sight (no walls/obstacles)
-            local params = RaycastParams.new()
-            params.FilterType = Enum.RaycastFilterType.Exclude
-            params.FilterDescendantsInstances = {teacher, char}
-            
-            local result = Workspace:Raycast(teacherRoot.Position, (root.Position - teacherRoot.Position), params)
-            -- Ignore desks, chairs, and transparent parts since the teacher can see through them
-            if not result or (result.Instance.CanCollide == false) or result.Instance.Transparency > 0.8 or result.Instance.Name:lower():find("desk") or result.Instance.Name:lower():find("chair") or result.Instance.Name:lower():find("table") or result.Instance.Name:lower():find("seat") then
-                return true
-            end
-        end
-    end
-    return false
-end
-
-local lastAlertCheck = 0
-local cachedAlertActive = false
-
--- Fallback UI Check (Throttled to 10 FPS to prevent CPU lag)
-local function isAlertActive()
-    local now = os.clock()
-    if now - lastAlertCheck < 0.1 then
-        return cachedAlertActive
-    end
-    lastAlertCheck = now
-    
-    local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
-    if playerGui then
-        for _, child in ipairs(playerGui:GetChildren()) do
-            if child:IsA("ScreenGui") and child.Enabled then
-                for _, element in ipairs(child:GetDescendants()) do
-                    if element:IsA("GuiObject") and element.Visible and element.AbsoluteSize.X > 0 then
-                        local name = element.Name:lower()
-                        if name:find("warning") or name:find("alert") or name:find("caught") or name:find("eye") then
-                            cachedAlertActive = true
-                            return true
-                        end
-                        if element:IsA("TextLabel") then
-                            local text = element.Text:lower()
-                            if text:find("watching") or text:find("warning") or text:find("caught") then
-                                cachedAlertActive = true
-                                return true
-                            end
-                        end
-                    end
-                end
-            end
-        end
-    end
-    cachedAlertActive = false
-    return false
+    return CFrame.new(-285, 180, 395) -- Fallback Lobby Coordinate
 end
 
 -- ========================================================================
 -- 🏝️ AUTOMATION SYSTEM WORKERS
 -- ========================================================================
 
--- 1. Anti-Caught Worker (Instantly hides phone when teacher is looking)
-task.spawn(function()
-    while true do
-        task.wait(0.05) -- responsive and safe
-        if _G.AntiCaught then
-            pcall(function()
-                if isTeacherLooking() or isAlertActive() then
-                    local char = LocalPlayer.Character
-                    local tool = char and char:FindFirstChildWhichIsA("Tool")
-                    if tool and (tool.Name:lower():find("phone") or tool.Name:lower():find("cheat") or tool.Name:lower():find("camera")) then
-                        local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
-                        if backpack then
-                            tool.Parent = backpack
-                        end
-                    end
-                end
-            end)
-        end
-    end
-end)
-
--- 2. Auto Cheat Worker (Automatically equips phone and cheats when safe)
-task.spawn(function()
-    while true do
-        task.wait(0.3)
-        if _G.AutoCheat then
-            pcall(function()
-                if not (isTeacherLooking() or isAlertActive()) then
-                    local char = LocalPlayer.Character
-                    local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
-                    local hum = char and char:FindFirstChildWhichIsA("Humanoid")
-                    
-                    -- Find the phone or cheat tool
-                    local phone = char and char:FindFirstChildWhichIsA("Tool")
-                    if not (phone and (phone.Name:lower():find("phone") or phone.Name:lower():find("cheat") or phone.Name:lower():find("camera"))) and backpack then
-                        for _, item in ipairs(backpack:GetChildren()) do
-                            if item:IsA("Tool") and (item.Name:lower():find("phone") or item.Name:lower():find("cheat") or item.Name:lower():find("camera")) then
-                                hum:EquipTool(item)
-                                phone = item
-                                break
-                            end
-                        end
-                    end
-                    
-                    -- Use/Activate the phone
-                    if phone then
-                        phone:Activate()
-                        if _G.CheatRemote then
-                            _G.CheatRemote:FireServer(unpack(_G.CheatArgs or {}))
-                        end
-                    end
-                end
-            end)
-        end
-    end
-end)
-
--- 3. Teacher ESP Worker (Draws dynamic glow outline around the teacher)
+-- 1. Auto Survive / Auto Farm Loop
 task.spawn(function()
     while true do
         task.wait(0.5)
-        pcall(function()
-            local teacher = findTeacher()
-            if teacher then
-                local hl = teacher:FindFirstChildOfClass("Highlight")
-                if _G.TeacherESP then
-                    if not hl then
-                        hl = Instance.new("Highlight")
-                        hl.OutlineColor = Color3.fromRGB(255, 255, 255)
-                        hl.OutlineTransparency = 0
-                        hl.FillTransparency = 0.4
-                        hl.Parent = teacher
-                    end
-                    
-                    -- Dynamic color feedback: RED when teacher looks at you, GREEN when looking away
-                    if isTeacherLooking() or isAlertActive() then
-                        hl.FillColor = Color3.fromRGB(255, 60, 60)
+        if _G.AutoSurvive then
+            pcall(function()
+                local char = LocalPlayer.Character
+                local root = char and char:FindFirstChild("HumanoidRootPart")
+                local structure = Workspace:FindFirstChild("Structure")
+                
+                if root then
+                    if structure then
+                        -- Round is active: Teleport player to safety platform
+                        createPlatform()
+                        if root.Position.Y < 350 then
+                            root.CFrame = CFrame.new(-285, 382.5, 395)
+                        end
                     else
-                        hl.FillColor = Color3.fromRGB(60, 255, 60)
+                        -- Round is over: Remove platform and return player to Lobby
+                        removePlatform()
+                        if root.Position.Y > 350 then
+                            root.CFrame = getLobbyCFrame()
+                        end
                     end
-                else
-                    if hl then hl:Destroy() end
                 end
-            end
-        end)
+            end)
+        else
+            pcall(removePlatform)
+        end
     end
 end)
 
--- 4. Player Stats Worker (WalkSpeed & JumpPower loops)
+-- 2. Fall Damage Bypass Loop
+task.spawn(function()
+    while true do
+        task.wait(0.8)
+        if _G.DisableFallDamage then
+            pcall(function()
+                local char = LocalPlayer.Character
+                if char then
+                    local fall = char:FindFirstChild("FallDamage") or char:FindFirstChild("Fall Damage")
+                    if fall then
+                        fall:Destroy()
+                    end
+                end
+            end)
+        end
+    end
+end)
+
+-- 3. WalkSpeed & JumpPower Hack Loop
 task.spawn(function()
     while true do
         task.wait(0.5)
@@ -361,7 +140,6 @@ task.spawn(function()
                 if hum.UseJumpPower and hum.JumpPower ~= _G.JumpPower then
                     hum.JumpPower = _G.JumpPower
                 elseif not hum.UseJumpPower and hum.JumpHeight ~= _G.JumpPower * 0.14 then
-                    -- Translate jump power to jump height for modern engines
                     hum.JumpHeight = _G.JumpPower * 0.14
                 end
             end
@@ -1227,20 +1005,20 @@ end)()
 
 local Panel = AjizLib:CreateWindow({
     Title = "AJIZ HUB",
-    GameName = "Cheating During Testing",
+    GameName = "Natural Disaster",
     Footer = "Ajiz Hub"
 })
 
-Panel:AddToggle("Auto Cheat (When Safe)", false, function(state)
-    _G.AutoCheat = state
+Panel:AddToggle("Auto Survive (Auto-Farm)", false, function(state)
+    _G.AutoSurvive = state
 end)
 
-Panel:AddToggle("Anti-Caught (Auto-Hide Phone)", false, function(state)
-    _G.AntiCaught = state
+Panel:AddToggle("Disaster Predictor", false, function(state)
+    _G.DisasterPredictor = state
 end)
 
-Panel:AddToggle("Teacher ESP (Red/Green Glow)", false, function(state)
-    _G.TeacherESP = state
+Panel:AddToggle("Disable Fall Damage", false, function(state)
+    _G.DisableFallDamage = state
 end)
 
 Panel:AddToggle("Speed Boost (Fast Walk)", false, function(state)
@@ -1278,4 +1056,18 @@ Panel:AddToggle("Noclip", false, function(state)
     end
 end)
 
-AjizLib:Notify("Ajiz Hub", "Cheating During Testing Script Loaded!", 3)
+-- Disaster Status Predictor Hook (Starts monitoring automatically)
+task.spawn(function()
+    local disasterStatus = ReplicatedStorage:WaitForChild("DisasterStatus", 10)
+    if disasterStatus then
+        local lastVal = disasterStatus.Value
+        disasterStatus.Changed:Connect(function(val)
+            if _G.DisasterPredictor and val ~= "" and val ~= lastVal then
+                lastVal = val
+                AjizLib:Notify("Disaster Alert", "Disaster Detected: " .. tostring(val), 5)
+            end
+        end)
+    end
+end)
+
+AjizLib:Notify("Ajiz Hub", "Natural Disaster Survival Script Loaded!", 3)
