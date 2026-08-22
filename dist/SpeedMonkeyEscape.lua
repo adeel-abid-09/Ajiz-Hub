@@ -51,6 +51,25 @@ local success, fatalErr = pcall(function()
     local CachedWinPad = nil
     local CachedSpawnCF = nil
 
+    -- Locate spawn on script load before any teleport occurs
+    pcall(function()
+        local spawnLoc = Workspace:FindFirstChild("SpawnLocation") or Workspace:FindFirstChildOfClass("SpawnLocation")
+        if spawnLoc then
+            CachedSpawnCF = spawnLoc.CFrame
+        else
+            local lobbySpawn = Workspace:FindFirstChild("Spawn") or Workspace:FindFirstChild("LobbySpawn") or Workspace:FindFirstChild("Lobby")
+            if lobbySpawn then
+                CachedSpawnCF = lobbySpawn.CFrame
+            else
+                local char = LocalPlayer.Character
+                local root = char and char:FindFirstChild("HumanoidRootPart")
+                if root then
+                    CachedSpawnCF = root.CFrame
+                end
+            end
+        end
+    end)
+
     -- Safe Table Dump Helper
     local function safeDump(tbl)
         if type(tbl) ~= "table" then return tostring(tbl) end
@@ -387,33 +406,43 @@ local success, fatalErr = pcall(function()
     -- Dynamic parser to extract numerical reward values from BillboardGuis / part text labels
     local function getWinValue(part)
         local val = 0
-        pcall(function()
-            local num = tonumber(part.Name:match("%d+"))
-            if num then 
-                val = num 
+        
+        local function parseSuffixValue(str)
+            if not str then return 0 end
+            str = string.lower(str)
+            -- Remove commas, spaces, plus signs
+            local cleanStr = str:gsub("[,%s%+]", "")
+            -- Extract clean string containing digits, dots, k, m
+            cleanStr = cleanStr:gsub("[^%d%.km]", "")
+            local num = tonumber(cleanStr:match("[%d%.]+"))
+            if not num then return 0 end
+            if cleanStr:find("m") then
+                return num * 1000000
+            elseif cleanStr:find("k") then
+                return num * 1000
             end
+            return num
+        end
+
+        pcall(function()
+            val = parseSuffixValue(part.Name)
             
             for _, child in ipairs(part:GetDescendants()) do
                 if child:IsA("TextLabel") or child.ClassName:find("Text") then
                     local text = child.Text
                     if text then
-                        local matchNum = tonumber(text:gsub("%D+", ""))
-                        if matchNum then
-                            val = math.max(val, matchNum)
-                        end
+                        val = math.max(val, parseSuffixValue(text))
                     end
                 end
             end
             
             if part.Parent then
+                val = math.max(val, parseSuffixValue(part.Parent.Name))
                 for _, child in ipairs(part.Parent:GetDescendants()) do
                     if child:IsA("TextLabel") or child.ClassName:find("Text") then
                         local text = child.Text
                         if text then
-                            local matchNum = tonumber(text:gsub("%D+", ""))
-                            if matchNum then
-                                val = math.max(val, matchNum)
-                            end
+                            val = math.max(val, parseSuffixValue(text))
                         end
                     end
                 end
@@ -426,6 +455,13 @@ local success, fatalErr = pcall(function()
     local function isRealWinPad(part)
         local hasWinKeyword = false
         local hasExcludeKeyword = false
+        
+        -- Exclude any pads located in Lobby, Spawn, or Training ancestors
+        if hasAncestorKeyword(part, "lobby", "train", "spawn") or 
+           hasAncestorKeyword(part, "training", "zone", "treadmill") or
+           hasAncestorKeyword(part, "rebirth", "multiplier", "vip") then
+            return false
+        end
         
         local function checkText(text)
             local t = string.lower(text)
@@ -501,21 +537,25 @@ local success, fatalErr = pcall(function()
         pcall(function()
             CachedWinPad = getBestWinPad()
             
-            -- Locate SpawnLocation (Targeting the exact Lobby Spawn Pad shown in user screenshot)
-            local spawnLoc = Workspace:FindFirstChild("SpawnLocation") or Workspace:FindFirstChildOfClass("SpawnLocation")
-            if spawnLoc then
-                CachedSpawnCF = spawnLoc.CFrame
-            else
-                -- Look for parts named "Spawn" or "Lobby"
-                local lobbySpawn = Workspace:FindFirstChild("Spawn") or Workspace:FindFirstChild("LobbySpawn") or Workspace:FindFirstChild("Lobby")
-                if lobbySpawn then
-                    CachedSpawnCF = lobbySpawn.CFrame
+            if not CachedSpawnCF then
+                -- Locate SpawnLocation (Targeting the exact Lobby Spawn Pad)
+                local spawnLoc = Workspace:FindFirstChild("SpawnLocation") or Workspace:FindFirstChildOfClass("SpawnLocation")
+                if spawnLoc then
+                    CachedSpawnCF = spawnLoc.CFrame
                 else
-                    -- Fallback to current player position on script startup
-                    local char = LocalPlayer.Character
-                    local root = char and char:FindFirstChild("HumanoidRootPart")
-                    if root then
-                        CachedSpawnCF = root.CFrame
+                    -- Look for parts named "Spawn" or "Lobby"
+                    local lobbySpawn = Workspace:FindFirstChild("Spawn") or Workspace:FindFirstChild("LobbySpawn") or Workspace:FindFirstChild("Lobby")
+                    if lobbySpawn then
+                        CachedSpawnCF = lobbySpawn.CFrame
+                    else
+                        -- Fallback to current player position ONLY if AutoWin is not active
+                        if not _G.AutoWin then
+                            local char = LocalPlayer.Character
+                            local root = char and char:FindFirstChild("HumanoidRootPart")
+                            if root then
+                                CachedSpawnCF = root.CFrame
+                            end
+                        end
                     end
                 end
             end
@@ -541,6 +581,57 @@ local success, fatalErr = pcall(function()
             end
         end)
         return targetPart
+    end
+
+    -- Progressive teleport to the end of the obby to load and find the best win pad (bypasses StreamingEnabled)
+    local function streamToBestWinPad()
+        local currentSearch = 1
+        local char = LocalPlayer.Character
+        local root = char and char:FindFirstChild("HumanoidRootPart")
+        if not root then return end
+        
+        noCollisionActive = true
+        EnableFloat(root)
+        
+        pcall(function()
+            for i = 1, 15 do -- Max 15 hops to prevent getting stuck
+                if not _G.AutoWin then break end
+                
+                local checkPart = getCheckpointPart(currentSearch)
+                if checkPart then
+                    root.CFrame = checkPart.CFrame * CFrame.new(0, 2, 0)
+                    task.wait(0.15) -- Wait for streaming
+                end
+                
+                -- Re-fetch character/root in case of death or streaming reset
+                char = LocalPlayer.Character
+                root = char and char:FindFirstChild("HumanoidRootPart")
+                if not root then break end
+                
+                -- Find the highest stage currently loaded
+                local highestLoaded = currentSearch
+                for _, obj in ipairs(Workspace:GetDescendants()) do
+                    if obj:IsA("BasePart") then
+                        local lname = string.lower(obj.Name)
+                        if lname:find("checkpoint") or lname:find("spawnlocation") or hasAncestorKeyword(obj, "checkpoint", "stages") then
+                            local num = tonumber(obj.Name:match("%d+")) or (obj.Parent and tonumber(obj.Parent.Name:match("%d+")))
+                            if num and num > highestLoaded then
+                                highestLoaded = num
+                            end
+                        end
+                    end
+                end
+                
+                if highestLoaded == currentSearch then
+                    break
+                else
+                    currentSearch = highestLoaded
+                end
+            end
+        end)
+        
+        DisableFloat()
+        noCollisionActive = false
     end
 
     -- Background dynamic Win Pad caching (Re-caches every 5 seconds)
@@ -606,9 +697,11 @@ local success, fatalErr = pcall(function()
         if hum then
             hum.Died:Connect(function()
                 pcall(function()
-                    local root = char:FindFirstChild("HumanoidRootPart")
-                    if root then
-                        diedAtPosition = root.CFrame
+                    if not _G.AutoWin then
+                        local root = char:FindFirstChild("HumanoidRootPart")
+                        if root then
+                            diedAtPosition = root.CFrame
+                        end
                     end
                 end)
             end)
@@ -620,7 +713,7 @@ local success, fatalErr = pcall(function()
             pcall(function()
                 local root = char:WaitForChild("HumanoidRootPart", 5)
                 if root then
-                    if diedAtPosition then
+                    if diedAtPosition and not _G.AutoWin then
                         -- Teleport player back to the exact coordinate location where they died
                         root.CFrame = diedAtPosition
                         diedAtPosition = nil -- Clear cache
@@ -643,9 +736,11 @@ local success, fatalErr = pcall(function()
             if hum then
                 hum.Died:Connect(function()
                     pcall(function()
-                        local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
-                        if root then
-                            diedAtPosition = root.CFrame
+                        if not _G.AutoWin then
+                            local root = LocalPlayer.Character:FindFirstChild("HumanoidRootPart")
+                            if root then
+                                diedAtPosition = root.CFrame
+                            end
                         end
                     end)
                 end)
@@ -719,15 +814,28 @@ local success, fatalErr = pcall(function()
                     
                     local char = LocalPlayer.Character
                     local root = char and char:FindFirstChild("HumanoidRootPart")
+                    local hum = char and char:FindFirstChildOfClass("Humanoid")
                     
-                    if root and CachedWinPad and CachedSpawnCF then
+                    if root and CachedWinPad and CachedSpawnCF and hum and hum.Health > 0 then
                         -- 1. Teleport player directly onto the Win Pad
                         root.CFrame = CachedWinPad.CFrame * CFrame.new(0, 2, 0)
-                        task.wait(0.25) -- Cooldown to guarantee touch registers on server
+                        
+                        -- Fire touch interest if supported to guarantee instant server registration
+                        pcall(function()
+                            if firetouchinterest then
+                                firetouchinterest(CachedWinPad, root, 0)
+                                task.wait(0.05)
+                                firetouchinterest(CachedWinPad, root, 1)
+                            end
+                        end)
+                        
+                        task.wait(0.3) -- Cooldown to guarantee touch registers on server
+                        
+                        if not _G.AutoWin or not root.Parent or hum.Health <= 0 then return end
                         
                         -- 2. Force-teleport player back to Lobby Spawn pad
                         root.CFrame = CachedSpawnCF * CFrame.new(0, 3, 0)
-                        task.wait(0.25) -- Cooldown before next win iteration
+                        task.wait(0.3) -- Cooldown before next win iteration
                     end
                 end)
             end
@@ -1637,7 +1745,6 @@ end
 return AjizLib
 
 end)()
-
     local Panel = AjizLib:CreateWindow({
         Title = "AJIZ HUB",
         GameName = "Monkey Escape",
@@ -1647,7 +1754,18 @@ end)()
     Panel:AddToggle("Auto Win (Infinite)", false, function(state)
         _G.AutoWin = state
         if state then
-            Notify("Ajiz Hub", "Infinite Win Teleport Loop Active!", 3)
+            diedAtPosition = nil -- Clear death cache
+            Notify("Ajiz Hub", "Streaming map to load the best Win Pad...", 4)
+            task.spawn(function()
+                streamToBestWinPad()
+                updateWinCaching()
+                if CachedWinPad then
+                    local val = getWinValue(CachedWinPad)
+                    Notify("Ajiz Hub", "Best Win Pad Found: +" .. tostring(val) .. " Wins!", 4)
+                else
+                    Notify("Ajiz Hub", "Auto Win active, searching for Win Pads...", 3)
+                end
+            end)
         else
             pcall(DisableFloat)
         end
