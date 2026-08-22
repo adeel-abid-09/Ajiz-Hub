@@ -463,18 +463,6 @@ local success, fatalErr = pcall(function()
             return false
         end
         
-        -- Must be inside obby stages or checkpoints to be a real Win Pad
-        local isObbyPart = hasAncestorKeyword(part, "stages", "stage", "obby") or 
-                           hasAncestorKeyword(part, "checkpoint", "finish", "course")
-        
-        if not isObbyPart then
-            -- Check if parent contains stage or obby keywords
-            local pName = part.Parent and string.lower(part.Parent.Name) or ""
-            if not (pName:find("stage") or pName:find("obby") or pName:find("checkpoint") or pName:find("finish")) then
-                return false
-            end
-        end
-        
         local function checkText(text)
             local t = string.lower(text)
             -- Must contain Win keyword
@@ -502,8 +490,13 @@ local success, fatalErr = pcall(function()
             end
         end
         
+        -- Check parent name only for exclusion keywords (we don't check for win keyword here)
         if part.Parent then
-            checkText(part.Parent.Name)
+            local pName = string.lower(part.Parent.Name)
+            if pName:find("speed") or pName:find("multiplier") or pName:find("train") or 
+               pName:find("rebirth") or pName:find("vip") or pName:find("treadmill") then
+                hasExcludeKeyword = true
+            end
             for _, child in ipairs(part.Parent:GetChildren()) do
                 if child:IsA("TextLabel") or child.ClassName:find("Text") then
                     pcall(function()
@@ -1767,10 +1760,15 @@ end)()
         _G.AutoWin = state
         if state then
             diedAtPosition = nil -- Clear death cache
-            Notify("Ajiz Hub", "Streaming map to load the best Win Pad...", 4)
             task.spawn(function()
-                streamToBestWinPad()
                 updateWinCaching()
+                -- Only stream the map if no high win pad is loaded yet
+                if not CachedWinPad or getWinValue(CachedWinPad) < 100 then
+                    Notify("Ajiz Hub", "Streaming map to load the best Win Pad...", 3)
+                    streamToBestWinPad()
+                    updateWinCaching()
+                end
+                
                 if CachedWinPad then
                     local val = getWinValue(CachedWinPad)
                     Notify("Ajiz Hub", "Best Win Pad Found: +" .. tostring(val) .. " Wins!", 4)
