@@ -83,6 +83,36 @@ local function getLobbyCFrame()
 end
 
 -- ========================================================================
+-- 🧠 DUAL-LAYER FALL DAMAGE BYPASS (Metatable Hook + Script Deletion)
+-- ========================================================================
+local hookSuccess = false
+
+pcall(function()
+    local success, mt = pcall(function() return getrawmetatable(game) end)
+    if success and mt then
+        local oldNewindex = mt.__newindex
+        setreadonly(mt, false)
+
+        mt.__newindex = newcclosure(function(self, idx, val)
+            -- Check if writing to LocalPlayer's Humanoid Health
+            if _G.DisableFallDamage and idx == "Health" and self:IsA("Humanoid") then
+                local char = LocalPlayer.Character
+                if char and self.Parent == char then
+                    -- Block client-side health decreases (fall damage is client-side)
+                    if val < self.Health then
+                        return
+                    end
+                end
+            end
+            return oldNewindex(self, idx, val)
+        end)
+        setreadonly(mt, true)
+        hookSuccess = true
+        print("[AJIZ SYSTEM] Metatable __newindex Hook Applied for Fall Damage!")
+    end
+end)
+
+-- ========================================================================
 -- 🏝️ AUTOMATION SYSTEM WORKERS
 -- ========================================================================
 
@@ -120,7 +150,7 @@ task.spawn(function()
     end
 end)
 
--- 2. Fall Damage Bypass Loop
+-- 2. Fallback Fall Damage Bypass Loop (Deletes script in case metatable hook is unsupported)
 task.spawn(function()
     while true do
         task.wait(0.8)
@@ -131,7 +161,7 @@ task.spawn(function()
                     local fall = char:FindFirstChild("FallDamage") or char:FindFirstChild("Fall Damage")
                     if fall then
                         fall:Destroy()
-                        print("[AJIZ SYSTEM] Fall damage bypassed.")
+                        print("[AJIZ SYSTEM] Fall damage bypassed via script deletion.")
                     end
                 end
             end)
@@ -1093,7 +1123,6 @@ Panel:AddToggle("Noclip", false, function(state)
             NoclipConnection:Disconnect()
             NoclipConnection = nil
         end
-        -- Do not force CanCollide = true on all body parts to prevent self-collision physics glitches
     end
 end)
 
