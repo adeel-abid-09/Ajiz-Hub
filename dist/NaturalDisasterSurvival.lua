@@ -42,6 +42,14 @@ local NoclipConnection = nil
 -- Create Safe Platform in the Sky (Height Y = 380)
 local function createPlatform()
     if SafePlatform and SafePlatform.Parent then return SafePlatform end
+    
+    -- Cleanup duplicates first
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj.Name == "AjizHubSafePlatform" then
+            pcall(function() obj:Destroy() end)
+        end
+    end
+    
     SafePlatform = Instance.new("Part")
     SafePlatform.Size = Vector3.new(50, 2, 50)
     SafePlatform.CFrame = CFrame.new(-285, 380, 395)
@@ -56,10 +64,12 @@ end
 
 -- Remove Safe Platform from the Sky
 local function removePlatform()
-    if SafePlatform then
-        SafePlatform:Destroy()
-        SafePlatform = nil
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj.Name == "AjizHubSafePlatform" then
+            pcall(function() obj:Destroy() end)
+        end
     end
+    SafePlatform = nil
 end
 
 -- Get Lobby CFrame Spawn Location dynamically
@@ -81,7 +91,7 @@ task.spawn(function()
     while true do
         task.wait(0.5)
         if _G.AutoSurvive then
-            pcall(function()
+            local success, err = pcall(function()
                 local char = LocalPlayer.Character
                 local root = char and char:FindFirstChild("HumanoidRootPart")
                 local structure = Workspace:FindFirstChild("Structure")
@@ -103,8 +113,9 @@ task.spawn(function()
                     end
                 end
             end)
-        else
-            pcall(removePlatform)
+            if not success then
+                warn("[AJIZ AUTO-SURVIVE ERROR]: " .. tostring(err))
+            end
         end
     end
 end)
@@ -120,6 +131,7 @@ task.spawn(function()
                     local fall = char:FindFirstChild("FallDamage") or char:FindFirstChild("Fall Damage")
                     if fall then
                         fall:Destroy()
+                        print("[AJIZ SYSTEM] Fall damage bypassed.")
                     end
                 end
             end)
@@ -1012,6 +1024,17 @@ local Panel = AjizLib:CreateWindow({
 
 Panel:AddToggle("Auto Survive (Auto-Farm)", false, function(state)
     _G.AutoSurvive = state
+    if not state then
+        -- Instantly teleport back down and cleanup when toggled off
+        pcall(function()
+            removePlatform()
+            local char = LocalPlayer.Character
+            local root = char and char:FindFirstChild("HumanoidRootPart")
+            if root and root.Position.Y > 350 then
+                root.CFrame = getLobbyCFrame()
+            end
+        end)
+    end
 end)
 
 Panel:AddToggle("Disaster Predictor", false, function(state)
@@ -1020,14 +1043,37 @@ end)
 
 Panel:AddToggle("Disable Fall Damage", false, function(state)
     _G.DisableFallDamage = state
+    if state then
+        pcall(function()
+            local char = LocalPlayer.Character
+            local fall = char and (char:FindFirstChild("FallDamage") or char:FindFirstChild("Fall Damage"))
+            if fall then fall:Destroy() end
+        end)
+    end
 end)
 
 Panel:AddToggle("Speed Boost (Fast Walk)", false, function(state)
     _G.WalkSpeed = state and 50 or 16
+    pcall(function()
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if hum then hum.WalkSpeed = _G.WalkSpeed end
+    end)
 end)
 
 Panel:AddToggle("Super Jump", false, function(state)
     _G.JumpPower = state and 100 or 50
+    pcall(function()
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildWhichIsA("Humanoid")
+        if hum then
+            if hum.UseJumpPower then
+                hum.JumpPower = _G.JumpPower
+            else
+                hum.JumpHeight = _G.JumpPower * 0.14
+            end
+        end
+    end)
 end)
 
 Panel:AddToggle("Noclip", false, function(state)
@@ -1047,13 +1093,7 @@ Panel:AddToggle("Noclip", false, function(state)
             NoclipConnection:Disconnect()
             NoclipConnection = nil
         end
-        if LocalPlayer.Character then
-            for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
-                if part:IsA("BasePart") then
-                    part.CanCollide = true
-                end
-            end
-        end
+        -- Do not force CanCollide = true on all body parts to prevent self-collision physics glitches
     end
 end)
 
@@ -1065,6 +1105,7 @@ task.spawn(function()
         disasterStatus.Changed:Connect(function(val)
             if _G.DisasterPredictor and val ~= "" and val ~= lastVal then
                 lastVal = val
+                print("[AJIZ SYSTEM] Predicted Disaster: " .. tostring(val))
                 AjizLib:Notify("Disaster Alert", "Disaster Detected: " .. tostring(val), 5)
             end
         end)
