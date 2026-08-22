@@ -85,9 +85,10 @@ task.spawn(function()
                 local char = LocalPlayer.Character
                 local root = char and char:FindFirstChild("HumanoidRootPart")
                 local structure = Workspace:FindFirstChild("Structure")
+                local isRoundActive = structure and #structure:GetChildren() > 0
                 
                 if root then
-                    if structure then
+                    if isRoundActive then
                         -- Round is active: Teleport player to safety platform
                         createPlatform()
                         if root.Position.Y < 350 then
