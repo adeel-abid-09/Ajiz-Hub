@@ -32,21 +32,31 @@ _G.BarryESP = false
 _G.WalkSpeed = 16
 _G.JumpPower = 50
 _G.NoClip = false
+_G.AutoCollect = false
 
 -- Keep track of highlights and connections
 local BarryHighlights = {}
 local NoclipConnection = nil
 
--- Scans workspace for checkpoints/spawns using Workspace:GetDescendants() for 100% coverage
+-- Scans workspace for checkpoints/spawns using Workspace:GetDescendants()
 local function getCheckpoints()
     local list = {}
     
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("SpawnLocation") or (obj:IsA("BasePart") and (obj.Name:lower():find("checkpoint") or obj.Name:lower():find("spawn"))) then
-            -- Get stage number from object name
-            local num = tonumber(obj.Name) or tonumber(obj.Name:match("%d+"))
+            -- Get stage number from object name OR its parent folder name (Roblox obby standard)
+            local num = tonumber(obj.Name) 
+                or tonumber(obj.Name:match("%d+")) 
+                or (obj.Parent and tonumber(obj.Parent.Name)) 
+                or (obj.Parent and tonumber(obj.Parent.Name:match("%d+")))
+                
             if num then
                 table.insert(list, {name = obj.Name, num = num, part = obj})
+            else
+                -- Print debug for skipped checkpoints to help resolve streaming or naming issues
+                pcall(function()
+                    print("[AJIZ DEBUG] Skipped checkpoint object (no number found): " .. obj.Name .. " | Parent: " .. (obj.Parent and obj.Parent.Name or "None"))
+                end)
             end
         end
     end
@@ -191,6 +201,37 @@ task.spawn(function()
                 end
             end
         end)
+    end
+end)
+
+-- 3. Auto Collect Coins / Cash Loop
+task.spawn(function()
+    while true do
+        task.wait(0.5)
+        if _G.AutoCollect then
+            pcall(function()
+                local char = LocalPlayer.Character
+                local hrp = char and char:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    for _, obj in ipairs(Workspace:GetDescendants()) do
+                        if obj:IsA("BasePart") then
+                            local name = obj.Name:lower()
+                            local pName = obj.Parent and obj.Parent.Name:lower() or ""
+                            if name:find("cash") or name:find("coin") or name:find("money") or pName:find("cash") or pName:find("coin") or pName:find("money") then
+                                if firetouchinterest then
+                                    firetouchinterest(obj, hrp, 0)
+                                    task.wait()
+                                    firetouchinterest(obj, hrp, 1)
+                                else
+                                    -- Fallback teleport coin to player
+                                    obj.CFrame = hrp.CFrame
+                                end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
     end
 end)
 
@@ -1056,6 +1097,10 @@ local Panel = AjizLib:CreateWindow({
     Footer = "Ajiz Hub"
 })
 
+Panel:AddToggle("Auto Collect Cash / Coins", false, function(state)
+    _G.AutoCollect = state
+end)
+
 Panel:AddToggle("Barry ESP (Red Outline)", false, function(state)
     _G.BarryESP = state
 end)
@@ -1128,8 +1173,8 @@ pcall(function()
     local cps = getCheckpoints()
     print("[AJIZ SYSTEM] Found checkpoints: " .. tostring(#cps))
     if #cps > 0 then
-        print("[AJIZ SYSTEM] First checkpoint stage: " .. cps[1].name)
-        print("[AJIZ SYSTEM] Last checkpoint stage: " .. cps[#cps].name)
+        print("[AJIZ SYSTEM] First checkpoint stage: " .. cps[1].name .. " (Stage " .. cps[1].num .. ")")
+        print("[AJIZ SYSTEM] Last checkpoint stage: " .. cps[#cps].name .. " (Stage " .. cps[#cps].num .. ")")
     end
 end)
 
