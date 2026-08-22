@@ -37,39 +37,16 @@ _G.NoClip = false
 local BarryHighlights = {}
 local NoclipConnection = nil
 
--- Scans workspace for checkpoints/spawns and sorts them numerically
+-- Scans workspace for checkpoints/spawns using Workspace:GetDescendants() for 100% coverage
 local function getCheckpoints()
     local list = {}
     
-    -- Check common obby checkpoint folders
-    local folders = {
-        Workspace:FindFirstChild("Checkpoints"),
-        Workspace:FindFirstChild("Spawns"),
-        Workspace:FindFirstChild("Stages"),
-        Workspace:FindFirstChild("SpawnPoints")
-    }
-    
-    for _, folder in ipairs(folders) do
-        if folder then
-            for _, cp in ipairs(folder:GetChildren()) do
-                if cp:IsA("BasePart") or cp:IsA("SpawnLocation") then
-                    local num = tonumber(cp.Name) or tonumber(cp.Name:match("%d+"))
-                    if num then
-                        table.insert(list, {name = cp.Name, num = num, part = cp})
-                    end
-                end
-            end
-        end
-    end
-    
-    -- Try direct children in workspace if no folder found
-    if #list == 0 then
-        for _, cp in ipairs(Workspace:GetChildren()) do
-            if cp:IsA("SpawnLocation") or (cp:IsA("BasePart") and cp.Name:lower():find("checkpoint")) then
-                local num = tonumber(cp.Name) or tonumber(cp.Name:match("%d+"))
-                if num then
-                    table.insert(list, {name = cp.Name, num = num, part = cp})
-                end
+    for _, obj in ipairs(Workspace:GetDescendants()) do
+        if obj:IsA("SpawnLocation") or (obj:IsA("BasePart") and (obj.Name:lower():find("checkpoint") or obj.Name:lower():find("spawn"))) then
+            -- Get stage number from object name
+            local num = tonumber(obj.Name) or tonumber(obj.Name:match("%d+"))
+            if num then
+                table.insert(list, {name = obj.Name, num = num, part = obj})
             end
         end
     end
@@ -95,23 +72,38 @@ local function grabKeycard()
     
     local found = nil
     for _, obj in ipairs(Workspace:GetDescendants()) do
-        if obj:IsA("Tool") or obj:IsA("BasePart") then
+        if obj:IsA("ProximityPrompt") then
+            local pName = obj.Parent.Name:lower()
+            local label = obj.ObjectText:lower() .. " " .. obj.ActionText:lower()
+            if pName:find("key") or pName:find("card") or label:find("key") or label:find("card") or label:find("grab") or label:find("pick") then
+                found = obj.Parent
+                break
+            end
+        elseif obj:IsA("Tool") then
             local name = obj.Name:lower()
-            if name:find("key") or name:find("card") or name:find("tool") then
+            if name:find("key") or name:find("card") then
                 found = obj
                 break
             end
-        elseif obj:IsA("ProximityPrompt") then
-            local parentName = obj.Parent.Name:lower()
-            if parentName:find("key") or parentName:find("card") then
-                found = obj.Parent
+        elseif obj:IsA("BasePart") and obj.Parent == Workspace then
+            local name = obj.Name:lower()
+            if name:find("key") or name:find("card") then
+                found = obj
                 break
             end
         end
     end
     
     if found then
-        local targetCF = found:IsA("BasePart") and found.CFrame or found:FindFirstChildWhichIsA("BasePart") and found:FindFirstChildWhichIsA("BasePart").CFrame
+        local targetCF = nil
+        if found:IsA("Model") then
+            targetCF = found:GetModelCFrame() or found:FindFirstChildWhichIsA("BasePart") and found:FindFirstChildWhichIsA("BasePart").CFrame
+        elseif found:IsA("BasePart") then
+            targetCF = found.CFrame
+        elseif found:IsA("Tool") then
+            targetCF = found:FindFirstChild("Handle") and found.Handle.CFrame or found:FindFirstChildWhichIsA("BasePart") and found:FindFirstChildWhichIsA("BasePart").CFrame
+        end
+        
         if targetCF then
             safeTeleport(targetCF)
             return true
@@ -160,7 +152,7 @@ task.spawn(function()
                 table.clear(BarryHighlights)
             else
                 -- Find Barry NPC in workspace
-                for _, obj in ipairs(Workspace:GetChildren()) do
+                for _, obj in ipairs(Workspace:GetDescendants()) do
                     if obj:IsA("Model") and not Players:GetPlayerFromCharacter(obj) then
                         local name = obj.Name:lower()
                         if name:find("barry") or name:find("boss") or name:find("guard") or name:find("npc") then
@@ -1127,6 +1119,17 @@ Panel:AddButton("Instant Win / Auto Escape", function()
         AjizLib:Notify("Teleported", "Teleported directly to the exit!", 3)
     else
         AjizLib:Notify("Failed", "Could not locate the final escape pad.", 3)
+    end
+end)
+
+-- Debug prints on load
+pcall(function()
+    print("[AJIZ SYSTEM] Initializing Barry's Prison Escape Hub...")
+    local cps = getCheckpoints()
+    print("[AJIZ SYSTEM] Found checkpoints: " .. tostring(#cps))
+    if #cps > 0 then
+        print("[AJIZ SYSTEM] First checkpoint stage: " .. cps[1].name)
+        print("[AJIZ SYSTEM] Last checkpoint stage: " .. cps[#cps].name)
     end
 end)
 
