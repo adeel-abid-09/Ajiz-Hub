@@ -18,17 +18,13 @@ pcall(function()
     CoreGui = game:GetService("CoreGui")
 end)
 
--- Safe Player Acquisition
+-- Safe Player Acquisition (Zero Yield Failure)
 local LocalPlayer = Players.LocalPlayer
 if not LocalPlayer then
-    local start = os.clock()
     repeat 
         task.wait(0.1) 
         LocalPlayer = Players.LocalPlayer 
-    until LocalPlayer or (os.clock() - start) > 10
-end
-if not LocalPlayer then
-    LocalPlayer = Players.PlayerAdded:Wait()
+    until LocalPlayer
 end
 
 -- Global States
@@ -140,31 +136,59 @@ if not successHook then
 end
 
 -- ========================================================================
--- 🏫 GAMEPLAY RESOLVERS & CALCULATORS
+-- 🏫 GAMEPLAY RESOLVERS & CALCULATORS (Throttled & Cached)
 -- ========================================================================
+local CachedTeacher = nil
+local lastTeacherSearch = 0
 
--- Find Teacher NPC in Workspace
+-- Find Teacher NPC in Workspace (Cached to prevent FPS lag)
 local function findTeacher()
+    if CachedTeacher and CachedTeacher.Parent and CachedTeacher:FindFirstChild("HumanoidRootPart") then
+        return CachedTeacher
+    end
+    
+    local now = os.clock()
+    if now - lastTeacherSearch < 3 then
+        return CachedTeacher
+    end
+    lastTeacherSearch = now
+    
+    -- 1. Search for explicit names
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj:IsA("Model") then
+            local name = obj.Name:lower()
+            if name:find("teacher") or name:find("instructor") or name:find("proctor") or name:find("professor") or name:find("mr.") or name:find("mrs.") or name:find("ms.") then
+                CachedTeacher = obj
+                return obj
+            end
+        end
+    end
+    
+    -- 2. Search deeper in workspace
     for _, obj in ipairs(Workspace:GetDescendants()) do
         if obj:IsA("Model") then
             local name = obj.Name:lower()
-            if name:find("teacher") or name:find("instructor") or name:find("mr") or name:find("ms") then
+            if name:find("teacher") or name:find("instructor") or name:find("proctor") or name:find("professor") then
+                CachedTeacher = obj
                 return obj
             end
         end
     end
-    -- Fallback: Search for any non-player Humanoid model that isn't named "NPC" or Player Character
-    for _, obj in ipairs(Workspace:GetDescendants()) do
+    
+    -- 3. Fallback: Find any model with humanoid that is not a player character
+    for _, obj in ipairs(Workspace:GetChildren()) do
         if obj:IsA("Model") and obj:FindFirstChildWhichIsA("Humanoid") then
             if not Players:GetPlayerFromCharacter(obj) and obj.Name ~= "NPC" then
+                CachedTeacher = obj
                 return obj
             end
         end
     end
+    
     return nil
 end
 
--- Calculate if Teacher is looking directly at the local player (Clear Line of Sight)
+-- Calculate if Teacher is looking directly at the local player
 local function isTeacherLooking()
     local char = LocalPlayer.Character
     local root = char and char:FindFirstChild("HumanoidRootPart")
@@ -184,8 +208,8 @@ local function isTeacherLooking()
             params.FilterDescendantsInstances = {teacher, char}
             
             local result = Workspace:Raycast(teacherRoot.Position, (root.Position - teacherRoot.Position), params)
-            if not result then
-                -- No solid obstacles in between: Teacher has clear line of sight
+            -- Ignore desks, chairs, and transparent parts since the teacher can see through them
+            if not result or (result.Instance.CanCollide == false) or result.Instance.Transparency > 0.8 or result.Instance.Name:lower():find("desk") or result.Instance.Name:lower():find("chair") or result.Instance.Name:lower():find("table") or result.Instance.Name:lower():find("seat") then
                 return true
             end
         end
@@ -193,25 +217,41 @@ local function isTeacherLooking()
     return false
 end
 
--- Fallback UI Check (if the game displays alert indicators like "WARNING" or "WATCHING")
+local lastAlertCheck = 0
+local cachedAlertActive = false
+
+-- Fallback UI Check (Throttled to 10 FPS to prevent CPU lag)
 local function isAlertActive()
-    local playerGui = LocalPlayer:FindFirstChild("PlayerGui")
+    local now = os.clock()
+    if now - lastAlertCheck < 0.1 then
+        return cachedAlertActive
+    end
+    lastAlertCheck = now
+    
+    local playerGui = LocalPlayer:FindFirstChildOfClass("PlayerGui")
     if playerGui then
-        for _, child in ipairs(playerGui:GetDescendants()) do
-            if child:IsA("GuiObject") and child.Visible and child.AbsoluteSize.X > 0 then
-                local name = child.Name:lower()
-                if name:find("warning") or name:find("alert") or name:find("caught") or name:find("eye") then
-                    return true
-                end
-                if child:IsA("TextLabel") then
-                    local text = child.Text:lower()
-                    if text:find("watching") or text:find("warning") or text:find("caught") then
-                        return true
+        for _, child in ipairs(playerGui:GetChildren()) do
+            if child:IsA("ScreenGui") and child.Enabled then
+                for _, element in ipairs(child:GetDescendants()) do
+                    if element:IsA("GuiObject") and element.Visible and element.AbsoluteSize.X > 0 then
+                        local name = element.Name:lower()
+                        if name:find("warning") or name:find("alert") or name:find("caught") or name:find("eye") then
+                            cachedAlertActive = true
+                            return true
+                        end
+                        if element:IsA("TextLabel") then
+                            local text = element.Text:lower()
+                            if text:find("watching") or text:find("warning") or text:find("caught") then
+                                cachedAlertActive = true
+                                return true
+                            end
+                        end
                     end
                 end
             end
         end
     end
+    cachedAlertActive = false
     return false
 end
 
@@ -222,15 +262,17 @@ end
 -- 1. Anti-Caught Worker (Instantly hides phone when teacher is looking)
 task.spawn(function()
     while true do
-        task.wait(0.02) -- Fast tick rate for immediate response
+        task.wait(0.05) -- responsive and safe
         if _G.AntiCaught then
             pcall(function()
                 if isTeacherLooking() or isAlertActive() then
                     local char = LocalPlayer.Character
                     local tool = char and char:FindFirstChildWhichIsA("Tool")
                     if tool and (tool.Name:lower():find("phone") or tool.Name:lower():find("cheat") or tool.Name:lower():find("camera")) then
-                        -- Hide the tool back in backpack
-                        tool.Parent = LocalPlayer:WaitForChild("Backpack")
+                        local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
+                        if backpack then
+                            tool.Parent = backpack
+                        end
                     end
                 end
             end)
@@ -246,12 +288,12 @@ task.spawn(function()
             pcall(function()
                 if not (isTeacherLooking() or isAlertActive()) then
                     local char = LocalPlayer.Character
-                    local backpack = LocalPlayer:WaitForChild("Backpack")
+                    local backpack = LocalPlayer:FindFirstChildOfClass("Backpack")
                     local hum = char and char:FindFirstChildWhichIsA("Humanoid")
                     
                     -- Find the phone or cheat tool
                     local phone = char and char:FindFirstChildWhichIsA("Tool")
-                    if not (phone and (phone.Name:lower():find("phone") or phone.Name:lower():find("cheat") or phone.Name:lower():find("camera"))) then
+                    if not (phone and (phone.Name:lower():find("phone") or phone.Name:lower():find("cheat") or phone.Name:lower():find("camera"))) and backpack then
                         for _, item in ipairs(backpack:GetChildren()) do
                             if item:IsA("Tool") and (item.Name:lower():find("phone") or item.Name:lower():find("cheat") or item.Name:lower():find("camera")) then
                                 hum:EquipTool(item)
@@ -1199,6 +1241,14 @@ end)
 
 Panel:AddToggle("Teacher ESP (Red/Green Glow)", false, function(state)
     _G.TeacherESP = state
+end)
+
+Panel:AddToggle("Speed Boost (Fast Walk)", false, function(state)
+    _G.WalkSpeed = state and 50 or 16
+end)
+
+Panel:AddToggle("Super Jump", false, function(state)
+    _G.JumpPower = state and 100 or 50
 end)
 
 Panel:AddToggle("Noclip", false, function(state)
