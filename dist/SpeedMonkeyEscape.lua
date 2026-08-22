@@ -142,7 +142,7 @@ local success, fatalErr = pcall(function()
                         print("[AJIZ HOOK FIRE] Remote: " .. self.Name .. " | Args: " .. safeDump(args))
                     end)
                     
-                    if name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
+                    if name:find("win") or (name:find("finish") and not name:find("tutorial")) or name:find("obby") or name:find("gate") or firstArg:find("win") or (firstArg:find("finish") and not firstArg:find("tutorial")) or firstArg:find("obby") then
                         _G.WinRemote = self
                         _G.WinArgs = args
                     elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
@@ -165,7 +165,7 @@ local success, fatalErr = pcall(function()
                         print("[AJIZ HOOK INVOKE] Remote: " .. self.Name .. " | Args: " .. safeDump(args))
                     end)
                     
-                    if name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
+                    if name:find("win") or (name:find("finish") and not name:find("tutorial")) or name:find("obby") or name:find("gate") or firstArg:find("win") or (firstArg:find("finish") and not firstArg:find("tutorial")) or firstArg:find("obby") then
                         _G.WinRemote = self
                         _G.WinArgs = args
                     elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
@@ -200,7 +200,7 @@ local success, fatalErr = pcall(function()
                                 print("[AJIZ HOOK NAMECALL] Remote: " .. self.Name .. " | Args: " .. safeDump(args))
                             end)
                             
-                            if name:find("win") or name:find("finish") or name:find("obby") or name:find("gate") or firstArg:find("win") or firstArg:find("finish") or firstArg:find("obby") then
+                            if name:find("win") or (name:find("finish") and not name:find("tutorial")) or name:find("obby") or name:find("gate") or firstArg:find("win") or (firstArg:find("finish") and not firstArg:find("tutorial")) or firstArg:find("obby") then
                                 _G.WinRemote = self
                                 _G.WinArgs = args
                             elseif name:find("rebirth") or name:find("prestige") or firstArg:find("rebirth") or firstArg:find("prestige") then
@@ -231,7 +231,7 @@ local success, fatalErr = pcall(function()
                         _G.RebirthArgs = {}
                         print("[AJIZ SYSTEM] Auto-Detected Rebirth Remote: " .. obj:GetFullName())
                     -- Win Remote
-                    elseif not _G.WinRemote and (lname:find("win") or lname:find("finish") or lname:find("claimwin")) then
+                    elseif not _G.WinRemote and (lname:find("win") or (lname:find("finish") and not lname:find("tutorial")) or lname:find("claimwin")) then
                         _G.WinRemote = obj
                         _G.WinArgs = {}
                         print("[AJIZ SYSTEM] Auto-Detected Win Remote: " .. obj:GetFullName())
@@ -461,6 +461,18 @@ local success, fatalErr = pcall(function()
            hasAncestorKeyword(part, "training", "zone", "treadmill") or
            hasAncestorKeyword(part, "rebirth", "multiplier", "vip") then
             return false
+        end
+        
+        -- Must be inside obby stages or checkpoints to be a real Win Pad
+        local isObbyPart = hasAncestorKeyword(part, "stages", "stage", "obby") or 
+                           hasAncestorKeyword(part, "checkpoint", "finish", "course")
+        
+        if not isObbyPart then
+            -- Check if parent contains stage or obby keywords
+            local pName = part.Parent and string.lower(part.Parent.Name) or ""
+            if not (pName:find("stage") or pName:find("obby") or pName:find("checkpoint") or pName:find("finish")) then
+                return false
+            end
         end
         
         local function checkText(text)
